@@ -41,28 +41,28 @@
 
 ### Subtareas
 
-- [ ] 2.1 Crear `src/api/app.py` con Flask app factory, CORS config, y error handler centralizado
-- [ ] 2.2 Crear `src/api/routes/generator.py` con blueprint y endpoints: `POST /api/v1/generate`, `POST /api/v1/generate/export`
-- [ ] 2.3 Implementar `src/sdd_generator/gemini_client.py` — cliente SDK `google-generativeai` con configuración de modelo (`gemini-1.5-flash`, temperature=0.7, max_output_tokens=8192)
-- [ ] 2.4 Implementar `src/sdd_generator/generator.py` — orquestador que invoca Gemini Pro con System Prompt Role-1 (Lead Requirements Engineer) y parsea la respuesta estructurada
-- [ ] 2.5 Implementar `src/sdd_generator/ears_formatter.py` — validador y formateador que asegura sintaxis EARS estricta en output
-- [ ] 2.6 Crear `src/sdd_generator/templates/sdd_prompt.j2` — template Jinja2 del System Prompt Role-1 con placeholders para contexto del proyecto
-- [ ] 2.7 Implementar endpoint de exportación ZIP (Pack .kiro): genera archivo con `requirements.md`, `design.md`, `tasks.md`, `AGENTS.md`
-- [ ] 2.8 Escribir tests: `tests/sdd_generator/test_gemini_client.py` (mock API calls), `tests/sdd_generator/test_generator.py`, `tests/sdd_generator/test_ears_formatter.py`
-- [ ] 2.9 Verificar: `pytest tests/sdd_generator/ --tb=short -q` — todos los tests pasan
+- [x] 2.1 Crear `src/api/app.py` con Flask app factory, CORS config, y error handler centralizado
+- [x] 2.2 Crear `src/api/routes/generator.py` con blueprint y endpoints: `POST /api/v1/generate`, `POST /api/v1/generate/export`
+- [x] 2.3 Implementar `src/sdd_generator/gemini_client.py` — cliente SDK `google-generativeai` con configuración de modelo (`gemini-1.5-flash`, temperature=0.7, max_output_tokens=8192)
+- [x] 2.4 Implementar `src/sdd_generator/generator.py` — orquestador que invoca Gemini Pro con System Prompt Role-1 (Lead Requirements Engineer) y parsea la respuesta estructurada
+- [x] 2.5 Implementar `src/sdd_generator/ears_formatter.py` — validador y formateador que asegura sintaxis EARS estricta en output
+- [x] 2.6 Crear `src/sdd_generator/templates/sdd_prompt.j2` — template Jinja2 del System Prompt Role-1 con placeholders para contexto del proyecto
+- [x] 2.7 Implementar endpoint de exportación ZIP (Pack .kiro): genera archivo con `requirements.md`, `design.md`, `tasks.md`, `AGENTS.md`
+- [x] 2.8 Escribir tests: `tests/sdd_generator/test_gemini_client.py` (mock API calls), `tests/sdd_generator/test_generator.py`, `tests/sdd_generator/test_ears_formatter.py`
+- [x] 2.9 Verificar: `pytest tests/sdd_generator/ --tb=short -q` — todos los tests pasan
 
 ### Subtareas de Verificación — Edge Cases (Tarea 2)
 
-- [ ] 2.10 **[AMB-1]** Implementar test `tests/sdd_generator/test_generator_edge_cases.py::test_vague_prompt_under_5_words_generates_sdd` — verificar que input "hacer pagos" NO retorna error y genera SDD con sección [AMB] Contexto Inferido
-- [ ] 2.11 **[AMB-1]** Implementar test `test_generator_edge_cases.py::test_prompt_expansion_adds_amb_section` — verificar que la respuesta incluye `[AMB] Contexto Inferido` cuando input < 5 palabras
-- [ ] 2.12 **[GAP-1]** Implementar `src/sdd_generator/smart_engine.py` — Smart Engine local con templates Jinja2 que genera SDD esqueleto sin API externa en < 50 ms
-- [ ] 2.13 **[GAP-1]** Implementar test `tests/sdd_generator/test_fallback.py::test_missing_api_key_activates_smart_engine` — con `GEMINI_API_KEY=""`, verificar fallback en < 50 ms
-- [ ] 2.14 **[GAP-1]** Implementar test `test_fallback.py::test_rate_limit_429_uses_dynamo_cache` — mock response 429, verificar que DynamoDB cache se consulta y retorna stale
-- [ ] 2.15 **[GAP-1]** Implementar test `test_fallback.py::test_rate_limit_429_cache_miss_uses_smart_engine` — mock 429 + cache miss, verificar Smart Engine template en < 50 ms
-- [ ] 2.16 **[EDGE-1]** Implementar SSE streaming en `src/api/routes/generator.py` con `Response(stream_with_context(...), mimetype='text/event-stream')`
-- [ ] 2.17 **[EDGE-1]** Implementar test `tests/api/test_streaming_timeout.py::test_sse_sends_chunks_every_5s` — verificar que eventos SSE se emiten con `type: "chunk"`
-- [ ] 2.18 **[EDGE-1]** Implementar test `test_streaming_timeout.py::test_timeout_warning_at_25s` — verificar evento `{type: "timeout_warning", elapsed: 25}` se emite tras 25s
-- [ ] 2.19 Verificar: `pytest tests/sdd_generator/test_generator_edge_cases.py tests/sdd_generator/test_fallback.py tests/api/test_streaming_timeout.py --tb=short -q` — todos pasan
+- [x] 2.10 **[AMB-1]** Implementar test `tests/sdd_generator/test_generator_edge_cases.py::test_vague_prompt_under_5_words_generates_sdd` — verificar que input "hacer pagos" NO retorna error y genera SDD con sección [AMB] Contexto Inferido
+- [x] 2.11 **[AMB-1]** Implementar test `test_generator_edge_cases.py::test_prompt_expansion_adds_amb_section` — verificar que la respuesta incluye `[AMB] Contexto Inferido` cuando input < 5 palabras
+- [x] 2.12 **[GAP-1]** Implementar `src/sdd_generator/smart_engine.py` — Smart Engine local con templates Jinja2 que genera SDD esqueleto sin API externa en < 50 ms
+- [x] 2.13 **[GAP-1]** Implementar test `tests/sdd_generator/test_fallback.py::test_missing_api_key_activates_smart_engine` — con `GEMINI_API_KEY=""`, verificar fallback en < 50 ms
+- [x] 2.14 **[GAP-1]** Implementar test `test_fallback.py::test_rate_limit_429_uses_dynamo_cache` — mock response 429, verificar que DynamoDB cache se consulta y retorna stale
+- [x] 2.15 **[GAP-1]** Implementar test `test_fallback.py::test_rate_limit_429_cache_miss_uses_smart_engine` — mock 429 + cache miss, verificar Smart Engine template en < 50 ms
+- [x] 2.16 **[EDGE-1]** Implementar SSE streaming en `src/api/routes/generator.py` con `Response(stream_with_context(...), mimetype='text/event-stream')`
+- [x] 2.17 **[EDGE-1]** Implementar test `tests/api/test_streaming_timeout.py::test_sse_sends_chunks_every_5s` — verificar que eventos SSE se emiten con `type: "chunk"`
+- [x] 2.18 **[EDGE-1]** Implementar test `test_streaming_timeout.py::test_timeout_warning_at_25s` — verificar evento `{type: "timeout_warning", elapsed: 25}` se emite tras 25s
+- [x] 2.19 Verificar: `pytest tests/sdd_generator/test_generator_edge_cases.py tests/sdd_generator/test_fallback.py tests/api/test_streaming_timeout.py --tb=short -q` — todos pasan
 
 **Criterios de completitud (DoD)**:
 - Flask app levanta sin errores (`flask run`)
