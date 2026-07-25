@@ -19,6 +19,7 @@ MAX_FILE_SIZE_KB = 256
 SUPPORTED_EXTENSIONS = {
     '.py', '.yaml', '.yml', '.json', '.tf',
     '.template', '.cfg', '.toml', '.env',
+    '.pem', '.key', '.sh',
 }
 
 

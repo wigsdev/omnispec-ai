@@ -64,7 +64,27 @@ def start_audit():
     scanner = AuditScanner()
 
     try:
-        result = scanner.scan(repo_url)
+        # Descargar archivos del repositorio via GitHub API
+        from src.auditor.github_fetcher import GitHubFetcher, GitHubFetchError
+
+        fetcher = GitHubFetcher()
+        try:
+            files = fetcher.fetch_repo_files(repo_url)
+        except GitHubFetchError as e:
+            _audits[audit_id] = {
+                "id": audit_id,
+                "status": "error",
+                "repo_url": repo_url,
+                "error": str(e),
+                "timestamp": time.time(),
+            }
+            return jsonify({
+                "id": audit_id,
+                "status": "error",
+                "message": str(e),
+            }), 200
+
+        result = scanner.scan(repo_url, files)
         _audits[audit_id] = {
             "id": audit_id,
             "status": "completed",
@@ -78,6 +98,8 @@ def start_audit():
             "status": "completed",
             "score": result.get("score"),
             "findings_count": result.get("findings_count", 0),
+            "findings": result.get("findings"),
+            "skipped_files": result.get("skipped_files", []),
         }), 200
 
     except Exception as e:
