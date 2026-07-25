@@ -1,10 +1,10 @@
 """UniversalAIRouter — Estrategia Multi-Proveedor con failover automático.
 
-Administra la rotación entre proveedores de IA en orden de prioridad:
-1. Gemini (gemini-2.0-flash) via google-genai SDK
-2. Groq (llama-3.3-70b-versatile) via groq SDK
-3. OpenAI (gpt-4o-mini) via openai SDK
-4. Anthropic (claude-3-5-haiku-20241022) via anthropic SDK
+Administra la rotación entre proveedores de IA gratuitos en orden de prioridad:
+1. Gemini (gemini-flash-lite-latest) via google-genai SDK — cuota free generosa
+2. Groq Llama (llama-3.3-70b-versatile) via groq SDK — 30 req/min free
+3. Groq Qwen (qwen/qwen3.6-27b) via groq SDK — free, reasoning model
+4. Groq GPT-OSS (openai/gpt-oss-120b) via groq SDK — free backup
 5. SmartEngine (fallback local Jinja2 < 50ms)
 
 Si un proveedor retorna 429, error de auth, o no tiene API key,
@@ -12,6 +12,7 @@ conmuta al siguiente sin lanzar errores al usuario.
 """
 
 import os
+import re
 import time
 from abc import ABC, abstractmethod
 from typing import Any
@@ -57,10 +58,10 @@ class ProviderError(Exception):
 
 
 class GeminiProvider(AIProvider):
-    """Proveedor Google Gemini via google-genai SDK."""
+    """Proveedor Google Gemini via google-genai SDK (free tier generoso)."""
 
     name = "Gemini"
-    model = "gemini-2.0-flash"
+    model = "gemini-flash-lite-latest"
 
     def __init__(self):
         self._api_key = os.environ.get("GEMINI_API_KEY", "")
@@ -97,10 +98,10 @@ class GeminiProvider(AIProvider):
             raise ProviderError(self.name, str(e))
 
 
-class GroqProvider(AIProvider):
-    """Proveedor Groq via groq SDK."""
+class GroqLlamaProvider(AIProvider):
+    """Proveedor Groq con Llama 3.3 70B (free, rápido)."""
 
-    name = "Groq"
+    name = "Groq-Llama"
     model = "llama-3.3-70b-versatile"
 
     def __init__(self):
@@ -144,22 +145,76 @@ class GroqProvider(AIProvider):
             raise ProviderError(self.name, str(e))
 
 
-class OpenAIProvider(AIProvider):
-    """Proveedor OpenAI via openai SDK."""
+class GroqQwenProvider(AIProvider):
+    """Proveedor Groq con Qwen 3.6 27B (free, reasoning model)."""
 
-    name = "OpenAI"
-    model = "gpt-4o-mini"
+    name = "Groq-Qwen"
+    model = "qwen/qwen3.6-27b"
 
     def __init__(self):
-        self._api_key = os.environ.get("OPENAI_API_KEY", "")
+        self._api_key = os.environ.get("GROQ_API_KEY", "")
         self._client = None
         if self._api_key:
             self._init_client()
 
     def _init_client(self) -> None:
         try:
-            from openai import OpenAI
-            self._client = OpenAI(api_key=self._api_key)
+            from groq import Groq
+            self._client = Groq(api_key=self._api_key)
+        except (ImportError, Exception):
+            self._client = None
+
+    def is_available(self) -> bool:
+        return bool(self._api_key) and self._client is not None
+
+    def generate(self, prompt: str, system_prompt: str = "") -> str:
+        if not self.is_available():
+            raise ProviderError(self.name, "API key not configured")
+        try:
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": prompt})
+
+            response = self._client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=0.7,
+                max_tokens=8192,
+            )
+            content = response.choices[0].message.content
+            # Qwen incluye <think> tags — remover reasoning interno
+            return self._strip_thinking(content)
+        except Exception as e:
+            err = str(e).lower()
+            if "429" in err or "rate" in err:
+                raise ProviderError(self.name, "Rate limit 429")
+            if "401" in err or "auth" in err:
+                raise ProviderError(self.name, "Authentication error")
+            raise ProviderError(self.name, str(e))
+
+    def _strip_thinking(self, text: str) -> str:
+        """Remueve bloques <think>...</think> del output de Qwen."""
+        cleaned = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+        return cleaned.strip()
+
+
+class GroqGPTOSSProvider(AIProvider):
+    """Proveedor Groq con GPT-OSS 120B (free backup)."""
+
+    name = "Groq-GPT-OSS"
+    model = "openai/gpt-oss-120b"
+
+    def __init__(self):
+        self._api_key = os.environ.get("GROQ_API_KEY", "")
+        self._client = None
+        if self._api_key:
+            self._init_client()
+
+    def _init_client(self) -> None:
+        try:
+            from groq import Groq
+            self._client = Groq(api_key=self._api_key)
         except (ImportError, Exception):
             self._client = None
 
@@ -191,48 +246,6 @@ class OpenAIProvider(AIProvider):
             raise ProviderError(self.name, str(e))
 
 
-class AnthropicProvider(AIProvider):
-    """Proveedor Anthropic Claude via anthropic SDK."""
-
-    name = "Anthropic"
-    model = "claude-3-5-haiku-20241022"
-
-    def __init__(self):
-        self._api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-        self._client = None
-        if self._api_key:
-            self._init_client()
-
-    def _init_client(self) -> None:
-        try:
-            from anthropic import Anthropic
-            self._client = Anthropic(api_key=self._api_key)
-        except (ImportError, Exception):
-            self._client = None
-
-    def is_available(self) -> bool:
-        return bool(self._api_key) and self._client is not None
-
-    def generate(self, prompt: str, system_prompt: str = "") -> str:
-        if not self.is_available():
-            raise ProviderError(self.name, "API key not configured")
-        try:
-            response = self._client.messages.create(
-                model=self.model,
-                max_tokens=8192,
-                system=system_prompt if system_prompt else "You are a helpful assistant.",
-                messages=[{"role": "user", "content": prompt}],
-            )
-            return response.content[0].text
-        except Exception as e:
-            err = str(e).lower()
-            if "429" in err or "rate" in err:
-                raise ProviderError(self.name, "Rate limit 429")
-            if "401" in err or "auth" in err:
-                raise ProviderError(self.name, "Authentication error")
-            raise ProviderError(self.name, str(e))
-
-
 class SmartEngineProvider(AIProvider):
     """Proveedor fallback local (Jinja2 templates, < 50ms)."""
 
@@ -253,7 +266,7 @@ class SmartEngineProvider(AIProvider):
 class UniversalAIRouter:
     """Router multi-proveedor con failover automático.
 
-    Itera proveedores en orden de prioridad. Si uno falla,
+    Itera proveedores gratuitos en orden de prioridad. Si uno falla,
     conmuta al siguiente sin exponer errores al usuario.
 
     Attributes:
@@ -265,16 +278,16 @@ class UniversalAIRouter:
 
         Args:
             providers: Lista custom de proveedores (para testing).
-                Si None, usa la cadena por defecto.
+                Si None, usa la cadena por defecto (todos gratuitos).
         """
         if providers is not None:
             self.providers = providers
         else:
             self.providers = [
                 GeminiProvider(),
-                GroqProvider(),
-                OpenAIProvider(),
-                AnthropicProvider(),
+                GroqLlamaProvider(),
+                GroqQwenProvider(),
+                GroqGPTOSSProvider(),
                 SmartEngineProvider(),
             ]
 
@@ -331,3 +344,10 @@ class UniversalAIRouter:
     def get_available_providers(self) -> list[str]:
         """Retorna nombres de proveedores con API key configurada."""
         return [p.name for p in self.providers if p.is_available()]
+
+
+# Backward compatibility aliases
+GeminiProvider = GeminiProvider
+GroqProvider = GroqLlamaProvider
+OpenAIProvider = GroqGPTOSSProvider
+AnthropicProvider = GroqQwenProvider

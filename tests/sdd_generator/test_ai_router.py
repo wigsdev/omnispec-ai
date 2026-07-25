@@ -12,9 +12,9 @@ from src.sdd_generator.ai_router import (
     AIProvider,
     ProviderError,
     GeminiProvider,
-    GroqProvider,
-    OpenAIProvider,
-    AnthropicProvider,
+    GroqLlamaProvider,
+    GroqQwenProvider,
+    GroqGPTOSSProvider,
     SmartEngineProvider,
 )
 
@@ -210,35 +210,35 @@ class TestProviderClasses:
             if original:
                 os.environ["GEMINI_API_KEY"] = original
 
-    def test_groq_unavailable_without_key(self):
-        """GroqProvider sin GROQ_API_KEY no está disponible."""
+    def test_groq_llama_unavailable_without_key(self):
+        """GroqLlamaProvider sin GROQ_API_KEY no está disponible."""
         import os
         original = os.environ.pop("GROQ_API_KEY", None)
         try:
-            provider = GroqProvider()
+            provider = GroqLlamaProvider()
             assert provider.is_available() is False
         finally:
             if original:
                 os.environ["GROQ_API_KEY"] = original
 
-    def test_openai_unavailable_without_key(self):
-        """OpenAIProvider sin OPENAI_API_KEY no está disponible."""
+    def test_groq_qwen_unavailable_without_key(self):
+        """GroqQwenProvider sin GROQ_API_KEY no está disponible."""
         import os
-        original = os.environ.pop("OPENAI_API_KEY", None)
+        original = os.environ.pop("GROQ_API_KEY", None)
         try:
-            provider = OpenAIProvider()
+            provider = GroqQwenProvider()
             assert provider.is_available() is False
         finally:
             if original:
-                os.environ["OPENAI_API_KEY"] = original
+                os.environ["GROQ_API_KEY"] = original
 
-    def test_anthropic_unavailable_without_key(self):
-        """AnthropicProvider sin ANTHROPIC_API_KEY no está disponible."""
+    def test_groq_gptoss_unavailable_without_key(self):
+        """GroqGPTOSSProvider sin GROQ_API_KEY no está disponible."""
         import os
-        original = os.environ.pop("ANTHROPIC_API_KEY", None)
+        original = os.environ.pop("GROQ_API_KEY", None)
         try:
-            provider = AnthropicProvider()
+            provider = GroqGPTOSSProvider()
             assert provider.is_available() is False
         finally:
             if original:
-                os.environ["ANTHROPIC_API_KEY"] = original
+                os.environ["GROQ_API_KEY"] = original
