@@ -665,3 +665,181 @@ body {
     border-top: none;
     border-radius: 0 0 var(--radius-lg) var(--radius-lg);
 }
+
+/* ============================================
+   Auditor 3D — Progressive Scan UI
+   ============================================ */
+.audit-phase {
+    margin-top: 1rem;
+    animation: fadeIn 0.3s ease-out;
+}
+
+.audit-phase[hidden] {
+    display: none;
+}
+
+.phase-title {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--neon-cyan);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 0.75rem;
+}
+
+.enum-stats {
+    display: flex;
+    gap: 1.5rem;
+    margin-bottom: 1rem;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+}
+
+.enum-stat {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.enum-stat .stat-value {
+    font-weight: 700;
+    color: var(--neon-cyan);
+}
+
+.file-list {
+    max-height: 200px;
+    overflow-y: auto;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: 0.5rem;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+}
+
+.file-list-item {
+    padding: 0.2rem 0.5rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Progress Bar */
+.progress-bar-container {
+    width: 100%;
+    height: 6px;
+    background: var(--bg-primary);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: 0.5rem;
+}
+
+.progress-bar {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--neon-cyan), var(--neon-green));
+    border-radius: 3px;
+    transition: width 0.3s ease;
+    box-shadow: 0 0 8px var(--neon-cyan);
+}
+
+.progress-text {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-bottom: 1rem;
+}
+
+/* Scan Results List */
+.scan-results {
+    max-height: 350px;
+    overflow-y: auto;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+}
+
+.scan-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.3rem 0.5rem;
+    border-bottom: 1px solid var(--border-color);
+    animation: fadeIn 0.2s ease-out;
+}
+
+.scan-icon {
+    font-size: 0.9rem;
+    flex-shrink: 0;
+}
+
+.scan-icon--clean { color: var(--neon-green); }
+.scan-icon--findings { color: var(--neon-orange); }
+.scan-icon--critical { color: var(--neon-red); }
+
+.scan-path {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-primary);
+}
+
+.scan-status {
+    font-size: 0.65rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 3px;
+    white-space: nowrap;
+}
+
+.scan-status--clean {
+    color: var(--neon-green);
+    background: rgba(0, 255, 136, 0.1);
+}
+
+.scan-status--findings {
+    color: var(--neon-orange);
+    background: rgba(255, 149, 0, 0.1);
+}
+
+.scan-status--critical {
+    color: var(--neon-red);
+    background: rgba(255, 59, 59, 0.1);
+}
+
+/* Verdict Summary */
+.verdict-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 0.75rem;
+    margin: 1rem 0;
+}
+
+.verdict-card {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: 0.75rem;
+    text-align: center;
+    font-family: var(--font-mono);
+}
+
+.verdict-card .card-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--neon-cyan);
+}
+
+.verdict-card .card-label {
+    font-size: 0.65rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    margin-top: 0.25rem;
+}
+
+.audit-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 300px;
+}

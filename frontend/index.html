@@ -99,12 +99,33 @@
                         <input type="url" class="input-field" id="repoUrl" placeholder="https://github.com/user/repo" aria-label="URL del repositorio GitHub">
                         <button class="btn btn-primary" id="btnAudit">Auditar</button>
                     </div>
+                    <!-- Fase 1: Enumeración -->
+                    <div class="audit-phase" id="auditEnumeration" hidden>
+                        <h3 class="phase-title">Archivos Encontrados</h3>
+                        <div class="enum-stats" id="enumStats"></div>
+                        <div class="file-list" id="enumFileList"></div>
+                    </div>
                 </div>
                 <div class="output-section">
-                    <div class="score-section" id="scoreSection">
-                        <div class="score-gauge-container" id="scoreGauge" aria-label="Score de seguridad"></div>
+                    <!-- Fase 2: Escaneo progresivo -->
+                    <div class="audit-phase" id="auditScanning" hidden>
+                        <h3 class="phase-title">Escaneando Archivos</h3>
+                        <div class="progress-bar-container">
+                            <div class="progress-bar" id="scanProgressBar"></div>
+                        </div>
+                        <div class="progress-text" id="scanProgressText">0/0 archivos</div>
+                        <div class="scan-results" id="scanResults"></div>
                     </div>
-                    <div class="findings-section" id="findingsSection">
+                    <!-- Fase 3: Veredicto final -->
+                    <div class="audit-phase" id="auditVerdict" hidden>
+                        <div class="score-section" id="scoreSection">
+                            <div class="score-gauge-container" id="scoreGauge" aria-label="Score de seguridad"></div>
+                        </div>
+                        <div class="verdict-summary" id="verdictSummary"></div>
+                        <div class="findings-section" id="findingsSection"></div>
+                    </div>
+                    <!-- Placeholder inicial -->
+                    <div class="audit-placeholder" id="auditPlaceholder">
                         <p class="placeholder-text">Ingresa un repositorio para comenzar la auditoría...</p>
                     </div>
                 </div>

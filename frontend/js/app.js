@@ -161,7 +161,7 @@ const App = (() => {
     }
 
     /**
-     * Handler: Auditar repositorio.
+     * Handler: Auditar repositorio (progressive SSE).
      */
     async function handleAudit() {
         const repoUrl = document.getElementById('repoUrl').value.trim();
@@ -182,18 +182,32 @@ const App = (() => {
             return;
         }
 
+        // Reset UI
         const btn = document.getElementById('btnAudit');
         btn.disabled = true;
         btn.textContent = 'Auditando...';
+        resetAuditUI();
 
         try {
-            const response = await apiFetch('/audit', {
-                method: 'POST',
-                body: JSON.stringify({ repo_url: repoUrl, permission_granted: true })
-            });
+            const response = await fetch(`${API_BASE}/audit/stream?repo_url=${encodeURIComponent(repoUrl)}`);
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
 
-            if (response.score !== undefined) {
-                ScoreGauge.render(response.score);
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop();
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        const event = JSON.parse(line.slice(6));
+                        handleAuditEvent(event);
+                    }
+                }
             }
         } catch (err) {
             showAlert(`Error: ${err.message}`, 'error');
@@ -201,6 +215,139 @@ const App = (() => {
             btn.disabled = false;
             btn.textContent = 'Auditar';
         }
+    }
+
+    /**
+     * Procesa eventos SSE del auditor progresivo.
+     */
+    function handleAuditEvent(event) {
+        switch (event.type) {
+            case 'phase':
+                // Mostrar fase activa
+                break;
+
+            case 'enumeration':
+                showEnumeration(event);
+                break;
+
+            case 'file_scanned':
+                showFileScanResult(event);
+                break;
+
+            case 'complete':
+                showAuditVerdict(event);
+                break;
+
+            case 'error':
+                showAlert(`Error: ${event.message}`, 'error');
+                break;
+        }
+    }
+
+    /**
+     * Muestra la fase de enumeración.
+     */
+    function showEnumeration(data) {
+        document.getElementById('auditPlaceholder').hidden = true;
+        const phase = document.getElementById('auditEnumeration');
+        phase.hidden = false;
+
+        document.getElementById('enumStats').innerHTML = `
+            <div class="enum-stat"><span class="stat-value">${data.total}</span> Total</div>
+            <div class="enum-stat"><span class="stat-value">${data.analyzable}</span> Analizables</div>
+            <div class="enum-stat"><span class="stat-value">${data.skipped}</span> Omitidos</div>
+        `;
+
+        const list = document.getElementById('enumFileList');
+        list.innerHTML = data.files.map(f =>
+            `<div class="file-list-item">${f}</div>`
+        ).join('');
+
+        // Mostrar fase de escaneo
+        document.getElementById('auditScanning').hidden = false;
+    }
+
+    /**
+     * Muestra resultado de escaneo por archivo.
+     */
+    function showFileScanResult(data) {
+        const progress = (data.current / data.total) * 100;
+        document.getElementById('scanProgressBar').style.width = `${progress}%`;
+        document.getElementById('scanProgressText').textContent = `${data.current}/${data.total} archivos`;
+
+        const iconMap = { clean: '✅', findings: '⚠️', critical: '🔴' };
+        const statusMap = { clean: 'OK', findings: `${data.findings_count} hallazgo${data.findings_count > 1 ? 's' : ''}`, critical: 'CRITICAL' };
+
+        const item = document.createElement('div');
+        item.className = 'scan-item';
+        item.innerHTML = `
+            <span class="scan-icon scan-icon--${data.status}">${iconMap[data.status]}</span>
+            <span class="scan-path">${data.path}</span>
+            <span class="scan-status scan-status--${data.status}">${statusMap[data.status]}</span>
+        `;
+
+        const results = document.getElementById('scanResults');
+        results.appendChild(item);
+        results.scrollTop = results.scrollHeight;
+    }
+
+    /**
+     * Muestra el veredicto final con score y resumen.
+     */
+    function showAuditVerdict(data) {
+        const phase = document.getElementById('auditVerdict');
+        phase.hidden = false;
+
+        // Score gauge
+        ScoreGauge.init('scoreGauge');
+        ScoreGauge.render(data.score);
+
+        // Summary cards
+        const summary = data.summary || {};
+        document.getElementById('verdictSummary').innerHTML = `
+            <div class="verdict-card"><div class="card-value">${summary.analyzed || 0}</div><div class="card-label">Analizados</div></div>
+            <div class="verdict-card"><div class="card-value">${summary.clean || 0}</div><div class="card-label">Limpios</div></div>
+            <div class="verdict-card"><div class="card-value">${summary.with_findings || 0}</div><div class="card-label">Con Hallazgos</div></div>
+            <div class="verdict-card"><div class="card-value">${data.findings_count || 0}</div><div class="card-label">Total Findings</div></div>
+        `;
+
+        // Findings details
+        const findings = data.findings || {};
+        let html = '';
+        if (findings.secrets && findings.secrets.length) {
+            html += '<h4 class="phase-title" style="color:var(--neon-red)">Secretos Expuestos</h4>';
+            findings.secrets.forEach(f => {
+                html += `<div class="scan-item"><span class="scan-icon scan-icon--critical">🔴</span><span class="scan-path">${f.description} → ${f.file}:${f.line}</span></div>`;
+            });
+        }
+        if (findings.iac && findings.iac.length) {
+            html += '<h4 class="phase-title" style="color:var(--neon-orange)">IaC Insegura</h4>';
+            findings.iac.forEach(f => {
+                html += `<div class="scan-item"><span class="scan-icon scan-icon--findings">⚠️</span><span class="scan-path">${f.description} → ${f.file}:${f.line}</span></div>`;
+            });
+        }
+        if (findings.governance && findings.governance.length) {
+            html += '<h4 class="phase-title" style="color:var(--text-secondary)">Gobierno</h4>';
+            findings.governance.forEach(f => {
+                html += `<div class="scan-item"><span class="scan-icon">📋</span><span class="scan-path">${f.description}</span></div>`;
+            });
+        }
+        document.getElementById('findingsSection').innerHTML = html;
+    }
+
+    /**
+     * Resetea la UI del auditor para un nuevo escaneo.
+     */
+    function resetAuditUI() {
+        document.getElementById('auditPlaceholder').hidden = true;
+        document.getElementById('auditEnumeration').hidden = true;
+        document.getElementById('auditScanning').hidden = true;
+        document.getElementById('auditVerdict').hidden = true;
+        document.getElementById('scanResults').innerHTML = '';
+        document.getElementById('scanProgressBar').style.width = '0%';
+        document.getElementById('scanProgressText').textContent = '0/0 archivos';
+        document.getElementById('findingsSection').innerHTML = '';
+        document.getElementById('verdictSummary').innerHTML = '';
     }
 
     /**
