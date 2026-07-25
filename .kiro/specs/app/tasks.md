@@ -84,29 +84,29 @@
 
 ### Subtareas
 
-- [ ] 3.1 Crear `src/api/routes/auditor.py` con blueprint y endpoints: `POST /api/v1/audit`, `GET /api/v1/audit/{id}/status`, `GET /api/v1/audit/{id}/report`
-- [ ] 3.2 Implementar `src/auditor/scanner.py` — orquestador principal que gestiona el flujo de auditoría (permission check → scan → score → explain)
-- [ ] 3.3 Implementar protocolo Human-in-the-Loop de Permiso de Lectura: validar `permission_granted: true` en request body antes de proceder; loguear decisión con timestamp
-- [ ] 3.4 Implementar `src/auditor/structural.py` — detector de secretos expuestos con regex patterns: `AKIA[0-9A-Z]{16}`, `password\s*=\s*['"].+['"]`, tokens Bearer/JWT, private keys
-- [ ] 3.5 Implementar `src/auditor/quality.py` — inspector de IaC AWS: detectar `Action: "*"` en IAM policies, Security Groups con `0.0.0.0/0` en puertos sensibles (22, 3389, 3306)
-- [ ] 3.6 Implementar `src/auditor/compliance.py` — verificador de gobierno: tags obligatorios (`Environment`, `Owner`, `Project`, `CostCenter`), naming conventions, presencia de README/CHANGELOG/tests
-- [ ] 3.7 Implementar `src/auditor/report.py` — cálculo de Score Ponderado: `Score = 100 - (secrets_penalty * 0.5 + iac_penalty * 0.3 + gov_penalty * 0.2)` con severidades (crítico=20, alto=10, medio=5, bajo=2)
-- [ ] 3.8 Integrar Gemini Pro con System Prompt Role-2 (DevSecOps Security Auditor) para generar explicaciones contextuales de riesgo por hallazgo
-- [ ] 3.9 Escribir tests: `tests/auditor/test_scanner.py`, `tests/auditor/test_structural.py`, `tests/auditor/test_quality.py`, `tests/auditor/test_compliance.py`
-- [ ] 3.10 Verificar: `pytest tests/auditor/ --tb=short -q` — todos los tests pasan
+- [x] 3.1 Crear `src/api/routes/auditor.py` con blueprint y endpoints: `POST /api/v1/audit`, `GET /api/v1/audit/{id}/status`, `GET /api/v1/audit/{id}/report`
+- [x] 3.2 Implementar `src/auditor/scanner.py` — orquestador principal que gestiona el flujo de auditoría (permission check → scan → score → explain)
+- [x] 3.3 Implementar protocolo Human-in-the-Loop de Permiso de Lectura: validar `permission_granted: true` en request body antes de proceder; loguear decisión con timestamp
+- [x] 3.4 Implementar `src/auditor/structural.py` — detector de secretos expuestos con regex patterns: `AKIA[0-9A-Z]{16}`, `password\s*=\s*['"].+['"]`, tokens Bearer/JWT, private keys
+- [x] 3.5 Implementar `src/auditor/quality.py` — inspector de IaC AWS: detectar `Action: "*"` en IAM policies, Security Groups con `0.0.0.0/0` en puertos sensibles (22, 3389, 3306)
+- [x] 3.6 Implementar `src/auditor/compliance.py` — verificador de gobierno: tags obligatorios (`Environment`, `Owner`, `Project`, `CostCenter`), naming conventions, presencia de README/CHANGELOG/tests
+- [x] 3.7 Implementar `src/auditor/report.py` — cálculo de Score Ponderado: `Score = 100 - (secrets_penalty * 0.5 + iac_penalty * 0.3 + gov_penalty * 0.2)` con severidades (crítico=20, alto=10, medio=5, bajo=2)
+- [x] 3.8 Integrar Gemini Pro con System Prompt Role-2 (DevSecOps Security Auditor) para generar explicaciones contextuales de riesgo por hallazgo
+- [x] 3.9 Escribir tests: `tests/auditor/test_scanner.py`, `tests/auditor/test_structural.py`, `tests/auditor/test_quality.py`, `tests/auditor/test_compliance.py`
+- [x] 3.10 Verificar: `pytest tests/auditor/ --tb=short -q` — todos los tests pasan
 
 ### Subtareas de Verificación — Edge Cases (Tarea 3)
 
-- [ ] 3.11 **[GAP-2]** Implementar test `tests/auditor/test_permission_denied.py::test_read_permission_denied_aborts_audit` — verificar que con `permission_granted: false` NO se ejecuta ninguna llamada a GitHub API
-- [ ] 3.12 **[GAP-2]** Implementar test `test_permission_denied.py::test_denied_returns_200_with_cancelled_status` — verificar response 200 con `{status: "cancelled", message: "Auditoría cancelada"}`, no error 403
-- [ ] 3.13 **[GAP-2]** Implementar test `test_permission_denied.py::test_denied_logs_audit_event` — verificar que se loguea `{action_type: "permission_denied", scope: "read"}` en DynamoDB
-- [ ] 3.14 **[EDGE-2]** Implementar test `tests/auditor/test_empty_repo.py::test_empty_repo_returns_score_na` — repositorio con 0 archivos retorna `{score: null, message: "N/A"}`, sin error 500
-- [ ] 3.15 **[EDGE-2]** Implementar test `test_empty_repo.py::test_file_over_256kb_is_skipped` — verificar que archivo > 256 KB aparece en sección "Archivos Omitidos" con motivo
-- [ ] 3.16 **[EDGE-2]** Implementar test `test_empty_repo.py::test_unsupported_formats_only_returns_extensions_list` — repo con solo `.png/.exe` retorna lista de extensiones encontradas
-- [ ] 3.17 **[EDGE-2]** Implementar lógica de file size check en `src/auditor/scanner.py`: skip files > 256 KB con log warning
-- [ ] 3.18 **[GAP-1]** Implementar test `tests/auditor/test_scanner.py::test_gemini_429_during_explanation_uses_generic_text` — verificar fallback de explicación genérica cuando Gemini retorna 429 durante Role-2
-- [ ] 3.19 Implementar test `tests/auditor/test_scanner.py::test_score_clamped_at_zero` — verificar que penalties excesivas producen score = 0 (no negativo)
-- [ ] 3.20 Verificar: `pytest tests/auditor/test_permission_denied.py tests/auditor/test_empty_repo.py --tb=short -q` — todos pasan
+- [x] 3.11 **[GAP-2]** Implementar test `tests/auditor/test_permission_denied.py::test_read_permission_denied_aborts_audit` — verificar que con `permission_granted: false` NO se ejecuta ninguna llamada a GitHub API
+- [x] 3.12 **[GAP-2]** Implementar test `test_permission_denied.py::test_denied_returns_200_with_cancelled_status` — verificar response 200 con `{status: "cancelled", message: "Auditoría cancelada"}`, no error 403
+- [x] 3.13 **[GAP-2]** Implementar test `test_permission_denied.py::test_denied_logs_audit_event` — verificar que se loguea `{action_type: "permission_denied", scope: "read"}` en DynamoDB
+- [x] 3.14 **[EDGE-2]** Implementar test `tests/auditor/test_empty_repo.py::test_empty_repo_returns_score_na` — repositorio con 0 archivos retorna `{score: null, message: "N/A"}`, sin error 500
+- [x] 3.15 **[EDGE-2]** Implementar test `test_empty_repo.py::test_file_over_256kb_is_skipped` — verificar que archivo > 256 KB aparece en sección "Archivos Omitidos" con motivo
+- [x] 3.16 **[EDGE-2]** Implementar test `test_empty_repo.py::test_unsupported_formats_only_returns_extensions_list` — repo con solo `.png/.exe` retorna lista de extensiones encontradas
+- [x] 3.17 **[EDGE-2]** Implementar lógica de file size check en `src/auditor/scanner.py`: skip files > 256 KB con log warning
+- [x] 3.18 **[GAP-1]** Implementar test `tests/auditor/test_scanner.py::test_gemini_429_during_explanation_uses_generic_text` — verificar fallback de explicación genérica cuando Gemini retorna 429 durante Role-2
+- [x] 3.19 Implementar test `tests/auditor/test_scanner.py::test_score_clamped_at_zero` — verificar que penalties excesivas producen score = 0 (no negativo)
+- [x] 3.20 Verificar: `pytest tests/auditor/test_permission_denied.py tests/auditor/test_empty_repo.py --tb=short -q` — todos pasan
 
 **Criterios de completitud (DoD)**:
 - Sin permiso explícito, NO se ejecuta ninguna llamada a GitHub API (AC-2.1.2)

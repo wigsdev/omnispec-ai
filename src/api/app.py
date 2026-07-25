@@ -60,7 +60,9 @@ def create_app() -> Flask:
 
     # Register blueprints
     from src.api.routes.generator import generator_bp
+    from src.api.routes.auditor import auditor_bp
     app.register_blueprint(generator_bp)
+    app.register_blueprint(auditor_bp)
 
     return app
 
