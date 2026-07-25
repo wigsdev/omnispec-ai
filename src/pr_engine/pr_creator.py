@@ -1,7 +1,9 @@
 """PRCreator — Cliente GitHub API para creación de Pull Requests.
 
-Crea rama fix/omnispec-patch (con timestamp fallback si existe),
-aplica archivos con fix, commitea y abre PR via GitHub REST API v3.
+Crea rama fix/omnispec-patch, aplica correcciones directamente
+en los archivos afectados (no como .patch), y abre el PR.
+Usa la GitHub Git Trees API para commitear múltiples archivos
+en un solo commit atómico.
 """
 
 import base64
@@ -33,16 +35,12 @@ GITHUB_API = "https://api.github.com"
 class PRCreator:
     """Cliente para crear Pull Requests en GitHub.
 
-    Gestiona el flujo: crear rama → commit archivos → abrir PR,
-    con fallback de branch naming si la rama ya existe.
+    Aplica correcciones directamente en los archivos del repo
+    usando la Git Trees API (multi-file commit atómico).
     """
 
     def __init__(self, github_token: str | None = None):
-        """Inicializa el PR creator.
-
-        Args:
-            github_token: Token de GitHub. Si None, lee de env.
-        """
+        """Inicializa el PR creator."""
         self._token = github_token or os.environ.get("GITHUB_TOKEN", "")
         self._base_branch_name = "fix/omnispec-patch"
         self._session = requests.Session()
@@ -57,26 +55,26 @@ class PRCreator:
         diff: str,
         tests: str,
         findings: list[dict[str, Any]],
+        fixed_files: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        """Crea una rama y Pull Request con el fix.
+        """Crea rama con fixes aplicados y abre Pull Request.
 
         Args:
             repo_url: URL del repositorio.
-            diff: Unified diff del parche.
+            diff: Diff para mostrar en el PR body (preview).
             tests: Contenido de test_security_patch.py.
             findings: Hallazgos corregidos.
+            fixed_files: Dict {path: contenido_corregido} para commit directo.
 
         Returns:
-            Dict con 'pr_url', 'branch', 'commit_sha'.
+            Dict con 'pr_url', 'branch', 'files_changed'.
         """
         if not self._token:
             raise PRCreationError(
-                "GITHUB_TOKEN no configurado. Agrega tu token en .env"
+                "GITHUB_TOKEN no configurado. Conecta tu cuenta de GitHub."
             )
 
         owner, repo = self._parse_repo_url(repo_url)
-
-        # Obtener SHA de la rama principal
         default_branch = self._get_default_branch(owner, repo)
         base_sha = self._get_branch_sha(owner, repo, default_branch)
 
@@ -86,15 +84,26 @@ class PRCreator:
         # Crear rama
         self._create_branch(owner, repo, branch_name, base_sha)
 
-        # Commit archivos (diff como archivo .patch + tests)
+        # Preparar archivos para commit
+        files_to_commit: dict[str, str] = {}
+
+        # Agregar archivos corregidos (si los tenemos)
+        if fixed_files:
+            files_to_commit.update(fixed_files)
+
+        # Agregar test file
+        if tests:
+            files_to_commit["tests/test_security_patch.py"] = tests
+
+        # Commit todos los archivos en un solo commit atómico
         commit_message = self._build_commit_message(findings)
-        commit_sha = self._commit_files(
-            owner, repo, branch_name,
-            diff, tests, commit_message
+        commit_sha = self._commit_tree(
+            owner, repo, branch_name, base_sha,
+            files_to_commit, commit_message
         )
 
         # Crear PR
-        pr_body = self._build_pr_body(findings, diff, tests)
+        pr_body = self._build_pr_body(findings, diff, fixed_files)
         pr_url = self._open_pull_request(
             owner, repo, branch_name, default_branch,
             commit_message, pr_body
@@ -104,21 +113,82 @@ class PRCreator:
             "pr_url": pr_url,
             "branch": branch_name,
             "commit_sha": commit_sha,
+            "files_changed": len(files_to_commit),
         }
 
+    def _commit_tree(
+        self, owner: str, repo: str, branch: str,
+        base_sha: str, files: dict[str, str], message: str
+    ) -> str:
+        """Commitea múltiples archivos usando Git Trees API (atómico).
+
+        Crea blobs → tree → commit → update ref.
+        """
+        tree_items = []
+
+        for path, content in files.items():
+            # Crear blob para cada archivo
+            blob_sha = self._create_blob(owner, repo, content)
+            tree_items.append({
+                "path": path,
+                "mode": "100644",
+                "type": "blob",
+                "sha": blob_sha,
+            })
+
+        # Crear tree
+        r = self._session.post(
+            f"{GITHUB_API}/repos/{owner}/{repo}/git/trees",
+            json={"base_tree": base_sha, "tree": tree_items}
+        )
+        if r.status_code not in (200, 201):
+            raise PRCreationError(f"Error creando tree: {r.status_code}")
+        tree_sha = r.json()["sha"]
+
+        # Crear commit
+        r = self._session.post(
+            f"{GITHUB_API}/repos/{owner}/{repo}/git/commits",
+            json={
+                "message": message,
+                "tree": tree_sha,
+                "parents": [base_sha],
+            }
+        )
+        if r.status_code not in (200, 201):
+            raise PRCreationError(f"Error creando commit: {r.status_code}")
+        commit_sha = r.json()["sha"]
+
+        # Actualizar referencia de la rama
+        r = self._session.patch(
+            f"{GITHUB_API}/repos/{owner}/{repo}/git/refs/heads/{branch}",
+            json={"sha": commit_sha}
+        )
+        if r.status_code not in (200, 201):
+            raise PRCreationError(f"Error actualizando ref: {r.status_code}")
+
+        return commit_sha
+
+    def _create_blob(self, owner: str, repo: str, content: str) -> str:
+        """Crea un blob en el repo."""
+        r = self._session.post(
+            f"{GITHUB_API}/repos/{owner}/{repo}/git/blobs",
+            json={"content": content, "encoding": "utf-8"}
+        )
+        if r.status_code not in (200, 201):
+            raise PRCreationError(f"Error creando blob: {r.status_code}")
+        return r.json()["sha"]
+
     def _get_default_branch(self, owner: str, repo: str) -> str:
-        """Obtiene la rama por defecto del repo."""
+        """Obtiene la rama por defecto."""
         r = self._session.get(f"{GITHUB_API}/repos/{owner}/{repo}")
         if r.status_code == 403:
-            raise InsufficientScopeError(
-                "Token sin permisos. Necesita scope 'repo'."
-            )
+            raise InsufficientScopeError("Token sin scope 'repo'.")
         if r.status_code != 200:
             raise PRCreationError(f"Error accediendo repo: {r.status_code}")
         return r.json().get("default_branch", "main")
 
     def _get_branch_sha(self, owner: str, repo: str, branch: str) -> str:
-        """Obtiene el SHA del HEAD de una rama."""
+        """Obtiene el SHA del HEAD."""
         r = self._session.get(
             f"{GITHUB_API}/repos/{owner}/{repo}/git/ref/heads/{branch}"
         )
@@ -127,7 +197,7 @@ class PRCreator:
         return r.json()["object"]["sha"]
 
     def _resolve_branch_name(self, owner: str, repo: str) -> str:
-        """Resuelve nombre de rama con timestamp si ya existe."""
+        """Nombre de rama con timestamp fallback."""
         if self._branch_exists(owner, repo, self._base_branch_name):
             return f"{self._base_branch_name}-{int(time.time())}"
         return self._base_branch_name
@@ -139,10 +209,8 @@ class PRCreator:
         )
         return r.status_code == 200
 
-    def _create_branch(
-        self, owner: str, repo: str, branch: str, sha: str
-    ) -> None:
-        """Crea una nueva rama desde un SHA."""
+    def _create_branch(self, owner: str, repo: str, branch: str, sha: str) -> None:
+        """Crea una nueva rama."""
         r = self._session.post(
             f"{GITHUB_API}/repos/{owner}/{repo}/git/refs",
             json={"ref": f"refs/heads/{branch}", "sha": sha}
@@ -150,64 +218,7 @@ class PRCreator:
         if r.status_code == 422:
             raise BranchExistsError(f"Rama '{branch}' ya existe")
         if r.status_code not in (200, 201):
-            raise PRCreationError(
-                f"Error creando rama: {r.status_code} {r.text[:200]}"
-            )
-
-    def _commit_files(
-        self, owner: str, repo: str, branch: str,
-        diff: str, tests: str, message: str
-    ) -> str:
-        """Commitea archivos en la rama via Contents API."""
-        # Subir test_security_patch.py
-        self._put_file(
-            owner, repo, branch,
-            "tests/test_security_patch.py",
-            tests, message
-        )
-
-        # Subir el diff como archivo .patch
-        sha = self._put_file(
-            owner, repo, branch,
-            "omnispec-fix.patch",
-            diff, message
-        )
-
-        return sha
-
-    def _put_file(
-        self, owner: str, repo: str, branch: str,
-        path: str, content: str, message: str
-    ) -> str:
-        """Sube o actualiza un archivo via Contents API."""
-        encoded = base64.b64encode(content.encode()).decode()
-
-        # Check if file exists (para obtener sha si update)
-        existing_sha = None
-        r = self._session.get(
-            f"{GITHUB_API}/repos/{owner}/{repo}/contents/{path}",
-            params={"ref": branch}
-        )
-        if r.status_code == 200:
-            existing_sha = r.json().get("sha")
-
-        payload = {
-            "message": message,
-            "content": encoded,
-            "branch": branch,
-        }
-        if existing_sha:
-            payload["sha"] = existing_sha
-
-        r = self._session.put(
-            f"{GITHUB_API}/repos/{owner}/{repo}/contents/{path}",
-            json=payload
-        )
-        if r.status_code not in (200, 201):
-            raise PRCreationError(
-                f"Error subiendo {path}: {r.status_code} {r.text[:200]}"
-            )
-        return r.json().get("commit", {}).get("sha", "")
+            raise PRCreationError(f"Error creando rama: {r.status_code}")
 
     def _open_pull_request(
         self, owner: str, repo: str, branch: str,
@@ -216,50 +227,54 @@ class PRCreator:
         """Abre un Pull Request."""
         r = self._session.post(
             f"{GITHUB_API}/repos/{owner}/{repo}/pulls",
-            json={
-                "title": title,
-                "body": body,
-                "head": branch,
-                "base": base,
-            }
+            json={"title": title, "body": body, "head": branch, "base": base}
         )
         if r.status_code == 403:
-            raise InsufficientScopeError(
-                "Token necesita scope 'repo' para crear PRs."
-            )
+            raise InsufficientScopeError("Token necesita scope 'repo'.")
         if r.status_code not in (200, 201):
-            raise PRCreationError(
-                f"Error creando PR: {r.status_code} {r.text[:200]}"
-            )
+            raise PRCreationError(f"Error creando PR: {r.status_code} {r.text[:200]}")
         return r.json().get("html_url", "")
 
     def _parse_repo_url(self, url: str) -> tuple[str, str]:
-        """Extrae owner y repo de una URL de GitHub."""
+        """Extrae owner y repo de URL."""
         parts = url.rstrip('/').split('/')
         if len(parts) >= 2:
             return parts[-2], parts[-1]
         return "unknown", "unknown"
 
     def _build_commit_message(self, findings: list[dict[str, Any]]) -> str:
-        """Construye el commit message en formato convencional."""
+        """Commit message convencional."""
         if findings:
+            count = len(findings)
             desc = findings[0].get('description', 'security vulnerability')
+            if count > 1:
+                return f"fix(security): remediate {count} security findings"
             return f"fix(security): {desc}"
         return "fix(security): remediate security findings"
 
     def _build_pr_body(
-        self, findings: list[dict[str, Any]], diff: str, tests: str
+        self, findings: list[dict[str, Any]], diff: str,
+        fixed_files: dict[str, str] | None = None
     ) -> str:
-        """Construye el body del Pull Request."""
-        sections = ["## Security Fix — OmniSpec AI\n"]
-        sections.append("### Hallazgos Corregidos\n")
+        """Construye el body del PR."""
+        sections = [
+            "## 🔒 Security Fix — OmniSpec AI\n",
+            "### Hallazgos Corregidos\n"
+        ]
         for f in findings:
             sections.append(
                 f"- **[{f.get('severity', '?')}]** "
                 f"{f.get('description', '?')} "
                 f"(`{f.get('file', '?')}:{f.get('line', '?')}`)"
             )
-        sections.append(f"\n### Diff Aplicado\n```diff\n{diff[:3000]}\n```")
-        sections.append(f"\n### Tests de Validación\n```python\n{tests[:2000]}\n```")
-        sections.append("\n---\n> Generado por OmniSpec AI — Auto-Fix Engine")
+
+        if fixed_files:
+            sections.append(f"\n### Archivos Modificados ({len(fixed_files)})\n")
+            for path in fixed_files:
+                sections.append(f"- `{path}`")
+
+        if diff:
+            sections.append(f"\n### Diff Preview\n```diff\n{diff[:4000]}\n```")
+
+        sections.append("\n---\n> 🤖 Generado por **OmniSpec AI** — Auto-Fix Engine")
         return "\n".join(sections)

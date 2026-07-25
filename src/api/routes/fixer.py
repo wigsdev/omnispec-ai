@@ -43,30 +43,46 @@ def generate_fix():
     test_gen = TestSuiteGenerator()
 
     try:
-        diff_result = fixer.generate(findings)
+        # Fetch archivos originales si tenemos repo URL (para fix directo)
+        repo_files = None
+        if repo_url:
+            try:
+                from src.auditor.github_fetcher import GitHubFetcher
+                fetcher = GitHubFetcher()
+                repo_files = [f for f in fetcher.fetch_repo_files(repo_url) if not f.get('skipped')]
+            except Exception:
+                repo_files = None
 
-        # Diff vacío → no fix needed
-        if diff_result.get("status") == "no_fix_needed":
+        diff_result = fixer.generate(findings, files=repo_files)
+
+        # No fix needed
+        if diff_result.get("status") in ("no_fix_needed", "error"):
             return jsonify(diff_result), 200
 
-        test_result = test_gen.generate(findings, diff_result["diff"])
+        test_result = test_gen.generate(findings, diff_result.get("diff", ""))
 
         fix_id = str(uuid.uuid4())
         _fixes[fix_id] = {
             "id": fix_id,
             "status": "generated",
-            "diff": diff_result["diff"],
+            "diff": diff_result.get("diff", ""),
+            "fixed_files": diff_result.get("fixed_files", {}),
             "tests": test_result["test_content"],
             "repo_url": repo_url,
             "findings": findings,
+            "provider": diff_result.get("provider", "unknown"),
+            "latency_ms": diff_result.get("latency_ms", 0),
             "timestamp": time.time(),
         }
 
         return jsonify({
             "id": fix_id,
             "status": "generated",
-            "diff": diff_result["diff"],
+            "diff": diff_result.get("diff", ""),
             "tests": test_result["test_content"],
+            "files_changed": diff_result.get("files_changed", 0),
+            "provider": diff_result.get("provider"),
+            "latency_ms": diff_result.get("latency_ms"),
         }), 200
 
     except Exception as e:
@@ -144,6 +160,7 @@ def apply_fix():
             diff=fix_data["diff"],
             tests=fix_data["tests"],
             findings=fix_data["findings"],
+            fixed_files=fix_data.get("fixed_files"),
         )
         _fixes[fix_id]["status"] = "pr_created"
         _fixes[fix_id]["pr_url"] = pr_result.get("pr_url")

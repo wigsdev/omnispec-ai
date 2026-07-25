@@ -65,6 +65,11 @@ def mock_session():
 
         session.post.side_effect = side_effect_post
 
+        # Mock patch (for updating refs)
+        patch_resp = MagicMock()
+        patch_resp.status_code = 200
+        session.patch.return_value = patch_resp
+
         yield session
 
 

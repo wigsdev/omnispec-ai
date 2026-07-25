@@ -1,51 +1,54 @@
-"""DiffFixer — Generador de parches Unified Diff con AIRouter multi-proveedor.
+"""DiffFixer — Generador de correcciones de seguridad con AIRouter.
 
-Genera diffs de remediación de seguridad usando el AIRouter
-con System Prompt Role-3 (Test Automation Engineer).
-Valida formato y detecta diffs vacíos.
+Genera archivos corregidos (contenido completo) para cada vulnerabilidad
+detectada. También produce el diff para preview en la UI.
 """
 
 from typing import Any
 
 from src.sdd_generator.ai_router import UniversalAIRouter
 
-ROLE_3_SYSTEM_PROMPT = """You are a Test Automation Engineer specialized in security patch generation.
+ROLE_3_FIX_PROMPT = """You are a Security Remediation Engineer. Fix the security vulnerability in the file below.
 
-Generate a unified diff patch that fixes the identified vulnerabilities.
+Rules:
+- Return ONLY the complete fixed file content, no explanations, no markdown fences.
+- Fix ONLY the identified vulnerability (minimal change principle).
+- Replace hardcoded secrets with environment variable references (os.environ.get or os.getenv).
+- Replace exposed keys with placeholder comments.
+- Keep all other code unchanged.
+- Maintain the same file structure and formatting.
+
+Vulnerability: {description}
+File: {file_path}
+Line: {line}
+
+Original file content:
+{file_content}
+"""
+
+ROLE_3_DIFF_PROMPT = """You are a Test Automation Engineer. Generate a unified diff showing the security fixes.
 
 Rules:
 - Output ONLY the unified diff, no explanation, no markdown fences.
-- Start with --- a/ and +++ b/ lines (standard unified diff format).
-- Fix ONLY the identified vulnerability (minimal change principle).
-- Include inline comments explaining the fix where helpful.
+- Start each file with --- a/ and +++ b/ lines.
+- Fix ONLY the identified vulnerabilities.
+- Show context lines around changes.
 
-Format:
---- a/path/to/file.py
-+++ b/path/to/file.py
-@@ -line,count +line,count @@
- context line
--removed line
-+added line
- context line
+Vulnerabilities to fix:
+{findings_text}
 """
 
 
 class DiffFixer:
-    """Generador de parches de seguridad en formato unified diff.
+    """Generador de correcciones de seguridad.
 
-    Usa AIRouter multi-proveedor para generar diffs deterministas
-    y validables con git apply.
+    Genera tanto archivos corregidos (para el PR) como
+    diffs de preview (para la UI).
     """
 
     def __init__(self, ai_router: UniversalAIRouter | None = None, gemini_client=None):
-        """Inicializa el fixer.
-
-        Args:
-            ai_router: Router multi-proveedor inyectable (para testing).
-            gemini_client: Legacy param (backward compat for tests).
-        """
+        """Inicializa el fixer."""
         if gemini_client is not None:
-            # Backward compatibility: wrap legacy client
             from src.sdd_generator.ai_router import AIProvider, ProviderError, SmartEngineProvider
             from src.sdd_generator.gemini_client import (
                 GeminiClient, MissingAPIKeyError, RateLimitError, GeminiClientError,
@@ -54,13 +57,10 @@ class DiffFixer:
             class LegacyProvider(AIProvider):
                 name = "Gemini"
                 model = "legacy"
-
                 def __init__(self, client):
                     self._client = client
-
                 def is_available(self):
                     return self._client.is_available
-
                 def generate(self, prompt, system_prompt=""):
                     try:
                         result = self._client.generate(prompt=prompt, system_prompt=system_prompt)
@@ -68,79 +68,154 @@ class DiffFixer:
                     except (MissingAPIKeyError, RateLimitError, GeminiClientError) as e:
                         raise ProviderError("Gemini", str(e))
 
-            self.router = UniversalAIRouter(providers=[
-                LegacyProvider(gemini_client),
-                SmartEngineProvider(),
-            ])
+            self.router = UniversalAIRouter(providers=[LegacyProvider(gemini_client), SmartEngineProvider()])
         else:
             self.router = ai_router or UniversalAIRouter()
 
-    def generate(self, findings: list[dict[str, Any]]) -> dict[str, Any]:
-        """Genera un unified diff para remediar los hallazgos.
+    def generate(self, findings: list[dict[str, Any]], files: list[dict] | None = None) -> dict[str, Any]:
+        """Genera correcciones para los hallazgos detectados.
 
         Args:
-            findings: Lista de hallazgos de seguridad a corregir.
+            findings: Lista de hallazgos de seguridad.
+            files: Archivos originales del repo (con 'path' y 'content').
 
         Returns:
-            Dict con 'diff', 'status', 'provider', 'latency_ms'.
+            Dict con 'diff' (preview), 'fixed_files' (contenido corregido),
+            'status', 'provider', 'latency_ms'.
         """
         if not findings:
             return {"status": "no_fix_needed", "message": "No hay hallazgos para corregir"}
 
-        prompt = self._build_prompt(findings)
+        # Si tenemos los archivos originales, generar fixes por archivo
+        if files:
+            return self._generate_file_fixes(findings, files)
 
-        result = self.router.generate(
-            prompt=prompt,
-            system_prompt=ROLE_3_SYSTEM_PROMPT,
+        # Sin archivos originales, generar solo el diff (legacy)
+        return self._generate_diff_only(findings)
+
+    def _generate_file_fixes(
+        self, findings: list[dict[str, Any]], files: list[dict]
+    ) -> dict[str, Any]:
+        """Genera contenido corregido por archivo."""
+        fixed_files: dict[str, str] = {}
+        total_latency = 0
+
+        # Agrupar findings por archivo
+        findings_by_file: dict[str, list] = {}
+        for f in findings:
+            path = f.get("file", "")
+            if path not in findings_by_file:
+                findings_by_file[path] = []
+            findings_by_file[path].append(f)
+
+        # Buscar contenido original de cada archivo afectado
+        file_contents: dict[str, str] = {f["path"]: f.get("content", "") for f in files}
+
+        provider_used = "unknown"
+
+        for file_path, file_findings in findings_by_file.items():
+            original_content = file_contents.get(file_path, "")
+            if not original_content:
+                continue
+
+            # Generar fix para este archivo
+            description = "; ".join(f.get("description", "") for f in file_findings)
+            prompt = ROLE_3_FIX_PROMPT.format(
+                description=description,
+                file_path=file_path,
+                line=file_findings[0].get("line", "?"),
+                file_content=original_content,
+            )
+
+            result = self.router.generate(prompt=prompt, system_prompt="")
+            fixed_content = self._clean_output(result["content"])
+            provider_used = result.get("provider", provider_used)
+            total_latency += result.get("latency_ms", 0)
+
+            # Solo incluir si realmente cambió algo
+            if fixed_content and fixed_content.strip() != original_content.strip():
+                fixed_files[file_path] = fixed_content
+
+        if not fixed_files:
+            return {"status": "no_fix_needed", "message": "No se generaron cambios"}
+
+        # Generar diff para preview (comparando original vs fixed)
+        diff_preview = self._build_diff_preview(fixed_files, file_contents)
+
+        return {
+            "status": "generated",
+            "diff": diff_preview,
+            "fixed_files": fixed_files,
+            "files_changed": len(fixed_files),
+            "provider": provider_used,
+            "latency_ms": total_latency,
+        }
+
+    def _generate_diff_only(self, findings: list[dict[str, Any]]) -> dict[str, Any]:
+        """Genera solo el diff (sin archivos originales)."""
+        findings_text = "\n".join(
+            f"- [{f.get('severity')}] {f.get('description')} in {f.get('file')}:{f.get('line')}"
+            for f in findings
         )
+        prompt = ROLE_3_DIFF_PROMPT.format(findings_text=findings_text)
 
-        content = result["content"].strip()
+        result = self.router.generate(prompt=prompt, system_prompt="")
+        content = self._clean_output(result["content"])
         provider = result.get("provider", "unknown")
-        latency_ms = result.get("latency_ms", 0)
+        latency = result.get("latency_ms", 0)
 
-        # SmartEngine no genera diffs reales
-        if provider == "SmartEngine":
+        if provider == "SmartEngine" or not self._is_valid_diff(content):
             return {
                 "status": "error",
-                "message": "No hay proveedores de IA disponibles para generar el fix",
+                "message": "No se pudo generar un diff válido",
                 "diff": "",
                 "provider": provider,
-                "latency_ms": latency_ms,
-            }
-
-        # Validar que el diff no está vacío
-        if not self._is_valid_diff(content):
-            return {
-                "status": "no_fix_needed",
-                "message": "El modelo no generó un diff aplicable",
-                "provider": provider,
-                "latency_ms": latency_ms,
+                "latency_ms": latency,
             }
 
         return {
             "status": "generated",
             "diff": content,
+            "fixed_files": {},
             "provider": provider,
-            "latency_ms": latency_ms,
-            "metadata": {"model": result.get("model", "unknown")},
+            "latency_ms": latency,
         }
 
-    def _build_prompt(self, findings: list[dict[str, Any]]) -> str:
-        """Construye el prompt con los hallazgos a corregir."""
-        lines = ["Fix the following security findings:\n"]
-        for i, f in enumerate(findings, 1):
-            lines.append(
-                f"{i}. [{f.get('severity', 'unknown')}] "
-                f"{f.get('description', 'Unknown finding')} "
-                f"in {f.get('file', '?')}:{f.get('line', '?')}"
+    def _build_diff_preview(
+        self, fixed_files: dict[str, str], originals: dict[str, str]
+    ) -> str:
+        """Construye un diff legible para preview en la UI."""
+        import difflib
+        diff_lines = []
+
+        for path, fixed in fixed_files.items():
+            original = originals.get(path, "")
+            orig_lines = original.splitlines(keepends=True)
+            fixed_lines = fixed.splitlines(keepends=True)
+
+            file_diff = difflib.unified_diff(
+                orig_lines, fixed_lines,
+                fromfile=f"a/{path}",
+                tofile=f"b/{path}",
+                lineterm=""
             )
-        return "\n".join(lines)
+            diff_lines.extend(file_diff)
+
+        return "\n".join(diff_lines) if diff_lines else ""
+
+    def _clean_output(self, content: str) -> str:
+        """Limpia code fences del output de la IA."""
+        clean = content.strip()
+        if clean.startswith("```python"):
+            clean = clean[len("```python"):].strip()
+        elif clean.startswith("```"):
+            clean = clean[3:].strip()
+        if clean.endswith("```"):
+            clean = clean[:-3].strip()
+        return clean
 
     def _is_valid_diff(self, diff_text: str) -> bool:
-        """Valida que el texto es un unified diff con contenido."""
+        """Valida formato de diff."""
         if not diff_text:
             return False
-        has_additions = '+' in diff_text
-        has_removals = '-' in diff_text
-        has_header = '@@' in diff_text or '---' in diff_text
-        return has_header and (has_additions or has_removals)
+        return ('---' in diff_text or '@@' in diff_text) and ('+' in diff_text or '-' in diff_text)
