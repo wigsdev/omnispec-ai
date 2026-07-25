@@ -38,6 +38,11 @@ const App = (() => {
             btnGenerate.addEventListener('click', handleGenerate);
         }
 
+        const btnExport = document.getElementById('btnExport');
+        if (btnExport) {
+            btnExport.addEventListener('click', handleExport);
+        }
+
         // Auditor
         const btnAudit = document.getElementById('btnAudit');
         if (btnAudit) {
@@ -59,6 +64,50 @@ const App = (() => {
         const alertClose = document.getElementById('alertClose');
         if (alertClose) {
             alertClose.addEventListener('click', hideAlert);
+        }
+    }
+
+    /**
+     * Handler: Exportar Pack .kiro (ZIP).
+     */
+    async function handleExport() {
+        const prompt = document.getElementById('sddPrompt').value.trim();
+        if (!prompt) {
+            showAlert('Genera un SDD primero antes de exportar.', 'warning');
+            return;
+        }
+
+        const btn = document.getElementById('btnExport');
+        btn.disabled = true;
+        btn.textContent = 'Exportando...';
+
+        try {
+            const response = await fetch(`${API_BASE}/generate/export`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt })
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'omnispec-pack.kiro.zip';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            showAlert('Pack .kiro exportado exitosamente.', 'success');
+        } catch (err) {
+            showAlert(`Error exportando: ${err.message}`, 'error');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Exportar .kiro Pack';
         }
     }
 
