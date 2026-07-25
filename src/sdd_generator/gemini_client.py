@@ -13,7 +13,7 @@ Attributes:
 import os
 from typing import Any, Generator
 
-DEFAULT_MODEL = "gemini-1.5-flash"
+DEFAULT_MODEL = "gemini-2.0-flash"
 DEFAULT_TEMPERATURE = 0.7
 MAX_OUTPUT_TOKENS = 8192
 TOP_P = 0.9
@@ -61,7 +61,7 @@ class GeminiClient:
             MissingAPIKeyError: Si no se proporciona API key.
         """
         self.model_name = model
-        self._api_key = api_key or os.environ.get("GEMINI_API_KEY", "")
+        self._api_key = api_key if api_key is not None else os.environ.get("GEMINI_API_KEY", "")
         self._model = None
         self._is_available = False
 

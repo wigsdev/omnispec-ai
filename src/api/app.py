@@ -6,6 +6,13 @@ Configura CORS, manejo centralizado de errores y blueprints.
 
 import os
 
+from dotenv import load_dotenv
+
+# Cargar variables de entorno desde el archivo .env en la raíz del proyecto
+env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), '.env')
+load_dotenv(dotenv_path=env_path)
+load_dotenv()  # Fallback por defecto
+
 from flask import Flask, jsonify, send_from_directory
 
 

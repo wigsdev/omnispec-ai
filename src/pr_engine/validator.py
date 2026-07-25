@@ -6,6 +6,7 @@ validar patches antes de crear PRs. Bloquea el PR si falla.
 
 import os
 import subprocess
+import sys
 import tempfile
 from typing import Any
 
@@ -47,7 +48,7 @@ class PatchValidator:
 
         try:
             result = subprocess.run(
-                ['python', '-m', 'pytest', test_file, '--tb=short', '-q'],
+                [sys.executable, '-m', 'pytest', test_file, '--tb=short', '-q'],
                 capture_output=True,
                 text=True,
                 timeout=timeout,
