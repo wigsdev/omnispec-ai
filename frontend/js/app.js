@@ -61,6 +61,17 @@ const App = (() => {
             btnCreatePR.addEventListener('click', handleCreatePR);
         }
 
+        // Downloads
+        const btnDownloadDiff = document.getElementById('btnDownloadDiff');
+        if (btnDownloadDiff) {
+            btnDownloadDiff.addEventListener('click', () => downloadFile('omnispec-fix.diff', window._generatedDiff || ''));
+        }
+
+        const btnDownloadTests = document.getElementById('btnDownloadTests');
+        if (btnDownloadTests) {
+            btnDownloadTests.addEventListener('click', () => downloadFile('test_security_patch.py', window._generatedTests || ''));
+        }
+
         // Alert close
         const alertClose = document.getElementById('alertClose');
         if (alertClose) {
@@ -333,6 +344,14 @@ const App = (() => {
             });
         }
         document.getElementById('findingsSection').innerHTML = html;
+
+        // Guardar hallazgos para Auto-Fix Engine
+        window._auditFindings = [
+            ...(findings.secrets || []),
+            ...(findings.iac || []),
+        ];
+        window._auditRepoUrl = document.getElementById('repoUrl').value.trim();
+        populateFixFindings();
     }
 
     /**
@@ -354,21 +373,112 @@ const App = (() => {
      * Handler: Generar fix.
      */
     async function handleGenerateFix() {
+        const selected = getSelectedFindings();
+        if (selected.length === 0) {
+            showAlert('Selecciona al menos un hallazgo para corregir.', 'warning');
+            return;
+        }
+
+        const btn = document.getElementById('btnGenerateFix');
+        btn.disabled = true;
+        btn.textContent = 'Generando Fix...';
+
         try {
-            const response = await apiFetch('/fix/generate', { method: 'POST' });
-            if (response.diff) {
+            const response = await apiFetch('/fix/generate', {
+                method: 'POST',
+                body: JSON.stringify({
+                    findings: selected,
+                    repo_url: window._auditRepoUrl || '',
+                })
+            });
+
+            if (response.status === 'generated') {
+                // Mostrar diff
+                DiffViewer.init('diffViewer');
                 DiffViewer.render(response.diff);
+
+                // Mostrar tests
+                const testViewer = document.getElementById('testViewer');
+                if (testViewer && response.tests) {
+                    testViewer.innerHTML = `<pre><code>${escapeHtml(response.tests)}</code></pre>`;
+                }
+
+                // Habilitar botones
+                document.getElementById('btnCreatePR').disabled = false;
+                document.getElementById('btnDownloadDiff').disabled = false;
+                document.getElementById('btnDownloadTests').disabled = false;
+
+                // Guardar para descarga
+                window._generatedDiff = response.diff;
+                window._generatedTests = response.tests;
+                window._fixId = response.id;
+
+                showProviderBadge(response.provider || 'AI', response.latency_ms || 0);
+            } else if (response.status === 'no_fix_needed') {
+                showAlert('No se necesita corrección para los hallazgos seleccionados.', 'info');
+            } else if (response.status === 'error') {
+                showAlert(`Error: ${response.message}`, 'error');
             }
         } catch (err) {
-            showAlert(`Error: ${err.message}`, 'error');
+            showAlert(`Error generando fix: ${err.message}`, 'error');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Generar Fix';
         }
+    }
+
+    /**
+     * Popula el checklist de hallazgos en el tab Auto-Fix.
+     */
+    function populateFixFindings() {
+        const container = document.getElementById('fixFindings');
+        const findings = window._auditFindings || [];
+
+        if (findings.length === 0) {
+            container.innerHTML = '<p class="placeholder-text">Ejecuta una auditoría primero para ver hallazgos...</p>';
+            return;
+        }
+
+        const html = findings.map((f, i) => {
+            const severity = f.severity || 'unknown';
+            const colorClass = severity === 'critical' ? 'scan-icon--critical' : 'scan-icon--findings';
+            return `
+                <label class="finding-checkbox">
+                    <input type="checkbox" name="finding" value="${i}" checked>
+                    <span class="finding-severity ${colorClass}">[${severity}]</span>
+                    <span class="finding-desc">${f.description || 'Unknown'}</span>
+                    <span class="finding-file">${f.file || ''}:${f.line || ''}</span>
+                </label>
+            `;
+        }).join('');
+
+        container.innerHTML = html;
+        document.getElementById('btnGenerateFix').disabled = false;
+    }
+
+    /**
+     * Obtiene los hallazgos seleccionados del checklist.
+     */
+    function getSelectedFindings() {
+        const checkboxes = document.querySelectorAll('#fixFindings input[name="finding"]:checked');
+        const findings = window._auditFindings || [];
+        return Array.from(checkboxes).map(cb => findings[parseInt(cb.value)]).filter(Boolean);
+    }
+
+    /**
+     * Escapa HTML para inserción segura.
+     */
+    function escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
     }
 
     /**
      * Handler: Crear Pull Request.
      */
     async function handleCreatePR() {
-        const repoUrl = document.getElementById('repoUrl').value.trim();
+        const repoUrl = window._auditRepoUrl || document.getElementById('repoUrl').value.trim();
 
         // Human-in-the-Loop: Permiso de Escritura
         const granted = await PermissionModal.show({
@@ -385,11 +495,21 @@ const App = (() => {
         }
 
         try {
-            await apiFetch('/fix/apply', {
+            const response = await apiFetch('/fix/apply', {
                 method: 'POST',
-                body: JSON.stringify({ write_permission_granted: true })
+                body: JSON.stringify({
+                    fix_id: window._fixId,
+                    write_permission_granted: true,
+                })
             });
-            showAlert('Pull Request creado exitosamente.', 'success');
+
+            if (response.status === 'pr_created') {
+                showAlert(`Pull Request creado: ${response.pr_url}`, 'success');
+            } else if (response.status === 'validation_failed') {
+                showAlert(`Tests fallaron — PR no creado. ${response.pytest_output || ''}`, 'error');
+            } else {
+                showAlert(response.message || 'Error creando PR', 'error');
+            }
         } catch (err) {
             showAlert(`Error: ${err.message}`, 'error');
         }
@@ -516,6 +636,23 @@ const App = (() => {
                 }
             });
         });
+    }
+
+    /**
+     * Descarga un archivo de texto al navegador.
+     * @param {string} filename
+     * @param {string} content
+     */
+    function downloadFile(filename, content) {
+        const blob = new Blob([content], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
     }
 
     /**

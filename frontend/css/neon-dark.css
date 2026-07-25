@@ -843,3 +843,63 @@ body {
     justify-content: center;
     min-height: 300px;
 }
+
+/* ============================================
+   Auto-Fix Findings Checklist
+   ============================================ */
+.findings-checklist {
+    max-height: 350px;
+    overflow-y: auto;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: 0.5rem;
+}
+
+.finding-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.5rem;
+    border-bottom: 1px solid var(--border-color);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.finding-checkbox:hover {
+    background: rgba(0, 243, 255, 0.05);
+}
+
+.finding-checkbox:last-child {
+    border-bottom: none;
+}
+
+.finding-checkbox input[type="checkbox"] {
+    accent-color: var(--neon-cyan);
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+}
+
+.finding-severity {
+    font-weight: 700;
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    flex-shrink: 0;
+}
+
+.finding-desc {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-primary);
+}
+
+.finding-file {
+    color: var(--text-muted);
+    font-size: 0.65rem;
+    flex-shrink: 0;
+}
