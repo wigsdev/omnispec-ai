@@ -129,28 +129,28 @@
 
 ### Subtareas
 
-- [ ] 4.1 Crear `src/api/routes/fixer.py` con blueprint y endpoints: `POST /api/v1/fix/generate`, `POST /api/v1/fix/apply`, `GET /api/v1/fix/{id}/status`
-- [ ] 4.2 Implementar `src/pr_engine/fixer.py` — generador de unified diff patches via Gemini Pro con System Prompt Role-3 (Test Automation Engineer)
-- [ ] 4.3 Implementar `src/pr_engine/test_generator.py` — generador de `test_security_patch.py` con pytest: test positivo (fix aplicado) + test negativo (vulnerabilidad eliminada)
-- [ ] 4.4 Implementar protocolo Human-in-the-Loop de Permiso de Escritura: mostrar diff preview + tests preview → requerir `write_permission_granted: true` antes de crear PR; loguear decisión
-- [ ] 4.5 Implementar `src/pr_engine/validator.py` — ejecuta `pytest test_security_patch.py --tb=short -q` en entorno aislado; solo procede si todos los tests pasan
-- [ ] 4.6 Implementar `src/pr_engine/pr_creator.py` — `GitHubClient` que: crea rama `fix/omnispec-patch`, aplica diff, commit con formato `fix(security): <desc>`, abre PR via `POST /repos/{owner}/{repo}/pulls`
-- [ ] 4.7 Implementar fallback: si usuario deniega permiso de escritura, permitir descarga local de diff + tests como archivos
-- [ ] 4.8 Escribir tests: `tests/pr_engine/test_fixer.py`, `tests/pr_engine/test_test_generator.py`, `tests/pr_engine/test_pr_creator.py`, `tests/pr_engine/test_validator.py`
-- [ ] 4.9 Verificar: `pytest tests/pr_engine/ --tb=short -q` — todos los tests pasan
+- [x] 4.1 Crear `src/api/routes/fixer.py` con blueprint y endpoints: `POST /api/v1/fix/generate`, `POST /api/v1/fix/apply`, `GET /api/v1/fix/{id}/status`
+- [x] 4.2 Implementar `src/pr_engine/fixer.py` — generador de unified diff patches via Gemini Pro con System Prompt Role-3 (Test Automation Engineer)
+- [x] 4.3 Implementar `src/pr_engine/test_generator.py` — generador de `test_security_patch.py` con pytest: test positivo (fix aplicado) + test negativo (vulnerabilidad eliminada)
+- [x] 4.4 Implementar protocolo Human-in-the-Loop de Permiso de Escritura: mostrar diff preview + tests preview → requerir `write_permission_granted: true` antes de crear PR; loguear decisión
+- [x] 4.5 Implementar `src/pr_engine/validator.py` — ejecuta `pytest test_security_patch.py --tb=short -q` en entorno aislado; solo procede si todos los tests pasan
+- [x] 4.6 Implementar `src/pr_engine/pr_creator.py` — `GitHubClient` que: crea rama `fix/omnispec-patch`, aplica diff, commit con formato `fix(security): <desc>`, abre PR via `POST /repos/{owner}/{repo}/pulls`
+- [x] 4.7 Implementar fallback: si usuario deniega permiso de escritura, permitir descarga local de diff + tests como archivos
+- [x] 4.8 Escribir tests: `tests/pr_engine/test_fixer.py`, `tests/pr_engine/test_test_generator.py`, `tests/pr_engine/test_pr_creator.py`, `tests/pr_engine/test_validator.py`
+- [x] 4.9 Verificar: `pytest tests/pr_engine/ --tb=short -q` — todos los tests pasan
 
 ### Subtareas de Verificación — Edge Cases (Tarea 4)
 
-- [ ] 4.10 **[GAP-2]** Implementar test `tests/pr_engine/test_permission_denied.py::test_write_permission_denied_blocks_pr_creation` — verificar que con `write_permission_granted: false` NO se ejecuta ninguna operación de escritura en GitHub
-- [ ] 4.11 **[GAP-2]** Implementar test `test_permission_denied.py::test_denied_enables_local_download` — verificar que al denegar permiso, response incluye `{download_available: true, diff_content: "...", test_content: "..."}`
-- [ ] 4.12 **[GAP-2]** Implementar test `test_permission_denied.py::test_denied_logs_write_permission_event` — verificar log `{action_type: "permission_denied", scope: "write"}` en DynamoDB
-- [ ] 4.13 **[GAP-1]** Implementar test `tests/pr_engine/test_fixer.py::test_gemini_429_during_fix_generation` — verificar comportamiento cuando Gemini retorna 429 al generar diff (retry x1 → error informativo)
-- [ ] 4.14 **[EDGE-1]** Implementar test `tests/pr_engine/test_fixer.py::test_fix_generation_timeout_returns_partial` — verificar que generaciones > 25s emiten timeout_warning y completan con resultado parcial
-- [ ] 4.15 Implementar test `tests/pr_engine/test_pr_creator.py::test_branch_already_exists_appends_timestamp` — verificar que si `fix/omnispec-patch` ya existe, se crea `fix/omnispec-patch-{timestamp}`
-- [ ] 4.16 Implementar test `tests/pr_engine/test_pr_creator.py::test_github_token_missing_scope_returns_helpful_error` — verificar que 403 por scope insuficiente retorna instrucciones claras al usuario
-- [ ] 4.17 Implementar test `tests/pr_engine/test_validator.py::test_pytest_failure_blocks_pr_and_shows_output` — verificar que tests fallidos bloquean PR y retornan stdout/stderr completo de pytest
-- [ ] 4.18 Implementar test `tests/pr_engine/test_fixer.py::test_invalid_diff_triggers_regeneration` — verificar que `git apply --check` failure dispara re-generación con contexto de error
-- [ ] 4.19 Verificar: `pytest tests/pr_engine/test_permission_denied.py tests/pr_engine/test_fixer.py tests/pr_engine/test_pr_creator.py tests/pr_engine/test_validator.py --tb=short -q` — todos pasan
+- [x] 4.10 **[GAP-2]** Implementar test `tests/pr_engine/test_permission_denied.py::test_write_permission_denied_blocks_pr_creation` — verificar que con `write_permission_granted: false` NO se ejecuta ninguna operación de escritura en GitHub
+- [x] 4.11 **[GAP-2]** Implementar test `test_permission_denied.py::test_denied_enables_local_download` — verificar que al denegar permiso, response incluye `{download_available: true, diff_content: "...", test_content: "..."}`
+- [x] 4.12 **[GAP-2]** Implementar test `test_permission_denied.py::test_denied_logs_write_permission_event` — verificar log `{action_type: "permission_denied", scope: "write"}` en DynamoDB
+- [x] 4.13 **[GAP-1]** Implementar test `tests/pr_engine/test_fixer.py::test_gemini_429_during_fix_generation` — verificar comportamiento cuando Gemini retorna 429 al generar diff (retry x1 → error informativo)
+- [x] 4.14 **[EDGE-1]** Implementar test `tests/pr_engine/test_fixer.py::test_fix_generation_timeout_returns_partial` — verificar que generaciones > 25s emiten timeout_warning y completan con resultado parcial
+- [x] 4.15 Implementar test `tests/pr_engine/test_pr_creator.py::test_branch_already_exists_appends_timestamp` — verificar que si `fix/omnispec-patch` ya existe, se crea `fix/omnispec-patch-{timestamp}`
+- [x] 4.16 Implementar test `tests/pr_engine/test_pr_creator.py::test_github_token_missing_scope_returns_helpful_error` — verificar que 403 por scope insuficiente retorna instrucciones claras al usuario
+- [x] 4.17 Implementar test `tests/pr_engine/test_validator.py::test_pytest_failure_blocks_pr_and_shows_output` — verificar que tests fallidos bloquean PR y retornan stdout/stderr completo de pytest
+- [x] 4.18 Implementar test `tests/pr_engine/test_fixer.py::test_invalid_diff_triggers_regeneration` — verificar que `git apply --check` failure dispara re-generación con contexto de error
+- [x] 4.19 Verificar: `pytest tests/pr_engine/test_permission_denied.py tests/pr_engine/test_fixer.py tests/pr_engine/test_pr_creator.py tests/pr_engine/test_validator.py --tb=short -q` — todos pasan
 
 **Criterios de completitud (DoD)**:
 - Diff generado es aplicable con `git apply` (formato unified diff válido)
