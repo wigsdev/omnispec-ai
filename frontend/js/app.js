@@ -18,6 +18,7 @@ const App = (() => {
         MermaidBlock.init();
         DiffViewer.init('diffViewer');
         ScoreGauge.init('scoreGauge');
+        initDocTabs();
 
         // Registrar event listeners principales
         bindEvents();
@@ -122,6 +123,7 @@ const App = (() => {
         }
 
         StreamingPanel.clear();
+        clearDocPanels();
         hideProviderBadge();
         const btn = document.getElementById('btnGenerate');
         btn.disabled = true;
@@ -133,7 +135,19 @@ const App = (() => {
                 body: JSON.stringify({ prompt })
             });
 
-            if (response.data) {
+            if (response.documents) {
+                // Renderizar cada documento en su panel
+                renderDocPanel('streamingOutput', response.documents.requirements);
+                renderDocPanel('designOutput', response.documents.design);
+                renderDocPanel('tasksOutput', response.documents.tasks);
+                renderDocPanel('agentsOutput', response.documents.agents);
+
+                // Guardar documentos para export
+                window._generatedDocs = response.documents;
+
+                document.getElementById('btnExport').disabled = false;
+                showProviderBadge(response.provider, response.latency_ms);
+            } else if (response.data) {
                 StreamingPanel.setContent(response.data);
                 document.getElementById('btnExport').disabled = false;
                 showProviderBadge(response.provider, response.latency_ms);
@@ -301,6 +315,60 @@ const App = (() => {
     function hideProviderBadge() {
         const badge = document.getElementById('providerBadge');
         if (badge) badge.hidden = true;
+    }
+
+    /**
+     * Renderiza markdown en un panel de documento.
+     * @param {string} elementId - ID del contenedor
+     * @param {string} markdown - Contenido markdown
+     */
+    function renderDocPanel(elementId, markdown) {
+        const el = document.getElementById(elementId);
+        if (!el || !markdown) return;
+        if (typeof marked !== 'undefined') {
+            el.innerHTML = marked.parse(markdown);
+        } else {
+            el.textContent = markdown;
+        }
+        // Auto-render mermaid blocks
+        if (typeof MermaidBlock !== 'undefined') {
+            MermaidBlock.renderAll(el);
+        }
+    }
+
+    /**
+     * Limpia todos los paneles de documentos.
+     */
+    function clearDocPanels() {
+        const panels = ['streamingOutput', 'designOutput', 'tasksOutput', 'agentsOutput'];
+        panels.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.innerHTML = '<p class="placeholder-text">Generando...</p>';
+        });
+    }
+
+    /**
+     * Inicializa las sub-tabs de documentos.
+     */
+    function initDocTabs() {
+        const tabs = document.querySelectorAll('.doc-tab');
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                // Desactivar todos
+                document.querySelectorAll('.doc-tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.doc-panel').forEach(p => {
+                    p.classList.remove('active');
+                    p.hidden = true;
+                });
+                // Activar seleccionado
+                tab.classList.add('active');
+                const panel = document.getElementById(`doc-${tab.dataset.doc}`);
+                if (panel) {
+                    panel.classList.add('active');
+                    panel.hidden = false;
+                }
+            });
+        });
     }
 
     /**

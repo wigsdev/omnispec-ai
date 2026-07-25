@@ -59,8 +59,32 @@
                     </div>
                 </div>
                 <div class="output-section">
-                    <div class="streaming-panel" id="streamingOutput" aria-live="polite" aria-label="Resultado de generación">
-                        <p class="placeholder-text">El resultado aparecerá aquí...</p>
+                    <!-- Sub-tabs para documentos generados -->
+                    <nav class="doc-tabs" role="tablist" aria-label="Documentos generados">
+                        <button class="doc-tab active" data-doc="requirements">requirements.md</button>
+                        <button class="doc-tab" data-doc="design">design.md</button>
+                        <button class="doc-tab" data-doc="tasks">tasks.md</button>
+                        <button class="doc-tab" data-doc="agents">AGENTS.md</button>
+                    </nav>
+                    <div class="doc-panel active" id="doc-requirements">
+                        <div class="streaming-panel" id="streamingOutput" aria-live="polite">
+                            <p class="placeholder-text">El resultado aparecerá aquí...</p>
+                        </div>
+                    </div>
+                    <div class="doc-panel" id="doc-design" hidden>
+                        <div class="streaming-panel" id="designOutput">
+                            <p class="placeholder-text">Genera un SDD para ver el documento de diseño...</p>
+                        </div>
+                    </div>
+                    <div class="doc-panel" id="doc-tasks" hidden>
+                        <div class="streaming-panel" id="tasksOutput">
+                            <p class="placeholder-text">Genera un SDD para ver el plan de tareas...</p>
+                        </div>
+                    </div>
+                    <div class="doc-panel" id="doc-agents" hidden>
+                        <div class="streaming-panel" id="agentsOutput">
+                            <p class="placeholder-text">Genera un SDD para ver el archivo AGENTS.md...</p>
+                        </div>
                     </div>
                 </div>
             </div>
