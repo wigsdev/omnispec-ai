@@ -1,0 +1,51 @@
+# Virtual Environments
+.venv/
+venv/
+env/
+.env.local
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+*.egg
+
+# AWS CDK
+cdk.out/
+
+# Packaging / Lambda
+.package/
+lambda_package/
+*.zip
+
+# Environment & Secrets
+.env
+*.pem
+credentials.json
+*.key
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+
+# mypy
+.mypy_cache/
+
+# ruff
+.ruff_cache/

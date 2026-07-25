@@ -1,0 +1,26 @@
+# Virtual Environments (large)
+.venv/
+venv/
+
+# AWS CDK output
+cdk.out/
+
+# Packaging artifacts
+.package/
+lambda_package/
+*.zip
+
+# Git internals
+.git/
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Coverage reports
+htmlcov/
+.coverage
+
+# OS files
+.DS_Store
+Thumbs.db
