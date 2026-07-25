@@ -49,7 +49,8 @@ const MermaidBlock = (() => {
 
             try {
                 const id = `mermaid-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-                const { svg } = await mermaid.render(id, text);
+                const sanitized = sanitizeMermaidSyntax(text);
+                const { svg } = await mermaid.render(id, sanitized);
                 wrapper.innerHTML = svg;
                 block.dataset.mermaidRendered = 'true';
 
@@ -75,6 +76,21 @@ const MermaidBlock = (() => {
         const keywords = ['graph ', 'flowchart ', 'sequenceDiagram', 'classDiagram',
                           'stateDiagram', 'erDiagram', 'gantt', 'pie ', 'gitGraph'];
         return keywords.some(kw => text.startsWith(kw));
+    }
+
+    /**
+     * Sanitiza sintaxis Mermaid corrigiendo patrones comunes inválidos.
+     * @param {string} text
+     * @returns {string}
+     */
+    function sanitizeMermaidSyntax(text) {
+        return text
+            // Fix: -->|label|> Node → -->|label| Node
+            .replace(/\|>\s*/g, '| ')
+            // Fix: -->|label|> → -->|label|
+            .replace(/\|>(\s*\n)/g, '|$1')
+            // Fix: stray > after pipe-labels
+            .replace(/(\|[^|]*\|)>/g, '$1');
     }
 
     return { init, renderAll };
