@@ -128,7 +128,16 @@ def apply_fix():
         }), 200
 
     # Create PR
-    pr_creator = PRCreator()
+    from src.api.routes.auth import get_user_github_token
+    user_token = get_user_github_token()
+    if not user_token:
+        return jsonify({
+            "id": fix_id,
+            "status": "auth_required",
+            "message": "Debes conectar tu cuenta de GitHub primero",
+        }), 200
+
+    pr_creator = PRCreator(github_token=user_token)
     try:
         pr_result = pr_creator.create_pr(
             repo_url=fix_data["repo_url"],

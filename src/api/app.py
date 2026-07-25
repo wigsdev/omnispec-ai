@@ -32,6 +32,11 @@ def create_app() -> Flask:
         static_url_path='/static'
     )
 
+    # Session config (for OAuth tokens)
+    app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-in-production")
+    app.config['SESSION_COOKIE_HTTPONLY'] = True
+    app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+
     # CORS headers
     @app.after_request
     def add_cors_headers(response):
@@ -69,9 +74,11 @@ def create_app() -> Flask:
     from src.api.routes.generator import generator_bp
     from src.api.routes.auditor import auditor_bp
     from src.api.routes.fixer import fixer_bp
+    from src.api.routes.auth import auth_bp
     app.register_blueprint(generator_bp)
     app.register_blueprint(auditor_bp)
     app.register_blueprint(fixer_bp)
+    app.register_blueprint(auth_bp)
 
     return app
 

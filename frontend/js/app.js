@@ -77,6 +77,12 @@ const App = (() => {
         if (alertClose) {
             alertClose.addEventListener('click', hideAlert);
         }
+
+        // GitHub logout
+        const btnLogout = document.getElementById('btnLogout');
+        if (btnLogout) {
+            btnLogout.addEventListener('click', handleLogout);
+        }
     }
 
     /**
@@ -478,6 +484,13 @@ const App = (() => {
      * Handler: Crear Pull Request.
      */
     async function handleCreatePR() {
+        // Verificar autenticación primero
+        const authStatus = await apiFetch('/auth/status');
+        if (!authStatus.authenticated) {
+            showAlert('Debes conectar tu cuenta de GitHub primero. Click "Conectar GitHub" en el header.', 'warning');
+            return;
+        }
+
         const repoUrl = window._auditRepoUrl || document.getElementById('repoUrl').value.trim();
 
         // Human-in-the-Loop: Permiso de Escritura
@@ -667,6 +680,69 @@ const App = (() => {
         } catch {
             document.querySelector('.status-indicator').style.background = 'var(--neon-red)';
             document.querySelector('.status-text').textContent = 'Offline';
+        }
+
+        // Check GitHub auth status
+        checkGitHubAuth();
+    }
+
+    /**
+     * Verifica estado de autenticación de GitHub.
+     */
+    async function checkGitHubAuth() {
+        try {
+            const data = await apiFetch('/auth/status');
+            if (data.authenticated && data.user) {
+                showGitHubUser(data.user);
+            } else {
+                showGitHubLogin();
+            }
+        } catch {
+            showGitHubLogin();
+        }
+
+        // Check URL params for auth callback
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('auth_success')) {
+            showAlert('GitHub conectado exitosamente.', 'success');
+            window.history.replaceState({}, '', '/');
+            checkGitHubAuth();
+        }
+        if (params.get('auth_error')) {
+            showAlert(`Error de autenticación: ${params.get('auth_error')}`, 'error');
+            window.history.replaceState({}, '', '/');
+        }
+    }
+
+    /**
+     * Muestra el botón de login de GitHub.
+     */
+    function showGitHubLogin() {
+        document.getElementById('githubAuth').hidden = false;
+        document.getElementById('githubUser').hidden = true;
+    }
+
+    /**
+     * Muestra el usuario autenticado de GitHub.
+     */
+    function showGitHubUser(user) {
+        document.getElementById('githubAuth').hidden = true;
+        const userEl = document.getElementById('githubUser');
+        userEl.hidden = false;
+        document.getElementById('userAvatar').src = user.avatar_url || '';
+        document.getElementById('userName').textContent = user.login || 'user';
+    }
+
+    /**
+     * Handler: Logout de GitHub.
+     */
+    async function handleLogout() {
+        try {
+            await apiFetch('/auth/logout', { method: 'POST' });
+            showGitHubLogin();
+            showAlert('Sesión de GitHub cerrada.', 'info');
+        } catch {
+            showGitHubLogin();
         }
     }
 
