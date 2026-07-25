@@ -14,15 +14,15 @@
 
 ### Subtareas
 
-- [ ] 1.1 Crear `frontend/index.html` con estructura semántica HTML5, meta viewport, y CDN imports (marked.js, mermaid.js)
-- [ ] 1.2 Implementar `frontend/css/neon-dark.css` con variables CSS custom (--neon-cyan, --neon-magenta, --neon-green), dark mode base, y animaciones glow
-- [ ] 1.3 Construir sistema de pestañas (`TabPanel`) con 3 tabs: SDD Generator, Auditor 3D, Auto-Fix Engine — con indicador neón animado en tab activo
-- [ ] 1.4 Implementar componente `PermissionModal` reutilizable para diálogos Human-in-the-Loop (Lectura y Escritura)
-- [ ] 1.5 Implementar componente `StreamingPanel` para renderizado incremental de markdown con `marked.js`
-- [ ] 1.6 Implementar componente `MermaidBlock` para auto-renderizado de diagramas Mermaid.js
-- [ ] 1.7 Implementar componente `DiffViewer` con syntax highlighting (líneas verdes/rojas)
-- [ ] 1.8 Implementar componente `ScoreGauge` — indicador circular SVG 0-100 con colores semáforo (rojo <40, naranja 40-70, verde >70)
-- [ ] 1.9 Crear `frontend/js/app.js` con módulo principal: tab routing, event listeners, y fetch wrapper para API calls
+- [x] 1.1 Crear `frontend/index.html` con estructura semántica HTML5, meta viewport, y CDN imports (marked.js, mermaid.js)
+- [x] 1.2 Implementar `frontend/css/neon-dark.css` con variables CSS custom (--neon-cyan, --neon-magenta, --neon-green), dark mode base, y animaciones glow
+- [x] 1.3 Construir sistema de pestañas (`TabPanel`) con 3 tabs: SDD Generator, Auditor 3D, Auto-Fix Engine — con indicador neón animado en tab activo
+- [x] 1.4 Implementar componente `PermissionModal` reutilizable para diálogos Human-in-the-Loop (Lectura y Escritura)
+- [x] 1.5 Implementar componente `StreamingPanel` para renderizado incremental de markdown con `marked.js`
+- [x] 1.6 Implementar componente `MermaidBlock` para auto-renderizado de diagramas Mermaid.js
+- [x] 1.7 Implementar componente `DiffViewer` con syntax highlighting (líneas verdes/rojas)
+- [x] 1.8 Implementar componente `ScoreGauge` — indicador circular SVG 0-100 con colores semáforo (rojo <40, naranja 40-70, verde >70)
+- [x] 1.9 Crear `frontend/js/app.js` con módulo principal: tab routing, event listeners, y fetch wrapper para API calls
 
 **Criterios de completitud (DoD)**:
 - HTML válido (W3C validator)

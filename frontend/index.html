@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="OmniSpec AI - Plataforma Agéntica de Ingeniería SDD y Seguridad Serverless AWS">
+    <title>OmniSpec AI</title>
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="/static/css/neon-dark.css">
+
+    <!-- CDN: marked.js for Markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+    <!-- CDN: mermaid.js for diagram rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+</head>
+<body>
+    <!-- Header -->
+    <header class="app-header">
+        <div class="header-brand">
+            <span class="brand-icon">&#9670;</span>
+            <h1 class="brand-title">OmniSpec AI</h1>
+        </div>
+        <div class="header-status">
+            <span class="status-indicator" id="connectionStatus"></span>
+            <span class="status-text">Ready</span>
+        </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav class="tab-nav" role="tablist" aria-label="Módulos principales">
+        <button class="tab-btn active" role="tab" aria-selected="true" aria-controls="panel-generator" data-tab="generator">
+            <span class="tab-icon">&#9889;</span>
+            <span class="tab-label">SDD Generator</span>
+        </button>
+        <button class="tab-btn" role="tab" aria-selected="false" aria-controls="panel-auditor" data-tab="auditor">
+            <span class="tab-icon">&#128269;</span>
+            <span class="tab-label">Auditor 3D</span>
+        </button>
+        <button class="tab-btn" role="tab" aria-selected="false" aria-controls="panel-fixer" data-tab="fixer">
+            <span class="tab-icon">&#128295;</span>
+            <span class="tab-label">Auto-Fix Engine</span>
+        </button>
+        <div class="tab-indicator" aria-hidden="true"></div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Tab 1: SDD Generator -->
+        <section class="tab-panel active" id="panel-generator" role="tabpanel" aria-labelledby="tab-generator">
+            <div class="panel-layout">
+                <div class="input-section">
+                    <h2 class="section-title">Descripción del Proyecto</h2>
+                    <textarea class="input-textarea" id="sddPrompt" placeholder="Describe tu proyecto o pega la URL de un repositorio GitHub..." rows="6" aria-label="Descripción del proyecto"></textarea>
+                    <div class="action-bar">
+                        <button class="btn btn-primary" id="btnGenerate">Generar SDD</button>
+                        <button class="btn btn-secondary" id="btnExport" disabled>Exportar .kiro Pack</button>
+                    </div>
+                </div>
+                <div class="output-section">
+                    <div class="streaming-panel" id="streamingOutput" aria-live="polite" aria-label="Resultado de generación">
+                        <p class="placeholder-text">El resultado aparecerá aquí...</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Tab 2: Auditor 3D -->
+        <section class="tab-panel" id="panel-auditor" role="tabpanel" aria-labelledby="tab-auditor" hidden>
+            <div class="panel-layout panel-layout--auditor">
+                <div class="input-section">
+                    <h2 class="section-title">Repositorio GitHub</h2>
+                    <div class="input-group">
+                        <input type="url" class="input-field" id="repoUrl" placeholder="https://github.com/user/repo" aria-label="URL del repositorio GitHub">
+                        <button class="btn btn-primary" id="btnAudit">Auditar</button>
+                    </div>
+                </div>
+                <div class="output-section">
+                    <div class="score-section" id="scoreSection">
+                        <div class="score-gauge-container" id="scoreGauge" aria-label="Score de seguridad"></div>
+                    </div>
+                    <div class="findings-section" id="findingsSection">
+                        <p class="placeholder-text">Ingresa un repositorio para comenzar la auditoría...</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Tab 3: Auto-Fix Engine -->
+        <section class="tab-panel" id="panel-fixer" role="tabpanel" aria-labelledby="tab-fixer" hidden>
+            <div class="panel-layout panel-layout--fixer">
+                <div class="input-section">
+                    <h2 class="section-title">Hallazgos Seleccionados</h2>
+                    <div class="findings-checklist" id="fixFindings">
+                        <p class="placeholder-text">Ejecuta una auditoría primero para ver hallazgos...</p>
+                    </div>
+                    <div class="action-bar">
+                        <button class="btn btn-primary" id="btnGenerateFix" disabled>Generar Fix</button>
+                    </div>
+                </div>
+                <div class="output-section">
+                    <div class="diff-viewer" id="diffViewer" aria-label="Vista previa del diff">
+                        <p class="placeholder-text">El diff aparecerá aquí...</p>
+                    </div>
+                    <div class="test-viewer" id="testViewer" aria-label="Tests generados">
+                        <p class="placeholder-text">Los tests aparecerán aquí...</p>
+                    </div>
+                    <div class="action-bar">
+                        <button class="btn btn-primary" id="btnCreatePR" disabled>Crear Pull Request</button>
+                        <button class="btn btn-secondary" id="btnDownloadDiff" disabled>Descargar Diff</button>
+                        <button class="btn btn-secondary" id="btnDownloadTests" disabled>Descargar Tests</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Permission Modal (reusable) -->
+    <div class="modal-overlay" id="permissionModal" hidden aria-modal="true" role="dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title" id="modalTitle">Solicitud de Permiso</h3>
+            </div>
+            <div class="modal-body" id="modalBody">
+                <!-- Dynamic content -->
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-danger" id="modalDeny">Denegar</button>
+                <button class="btn btn-primary" id="modalGrant">Conceder</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Alert Banner -->
+    <div class="alert-banner" id="alertBanner" hidden aria-live="assertive">
+        <span class="alert-message" id="alertMessage"></span>
+        <button class="alert-close" id="alertClose" aria-label="Cerrar alerta">&times;</button>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/static/js/tab_panel.js"></script>
+    <script src="/static/js/permission_modal.js"></script>
+    <script src="/static/js/streaming_panel.js"></script>
+    <script src="/static/js/mermaid_block.js"></script>
+    <script src="/static/js/diff_viewer.js"></script>
+    <script src="/static/js/score_gauge.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
