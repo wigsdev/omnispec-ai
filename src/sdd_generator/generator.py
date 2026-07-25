@@ -1,7 +1,7 @@
 """SDDGenerator — Orquestador agéntico para generación de especificaciones SDD.
 
-Coordina el flujo de generación: Gemini Pro → EARS Formatter → Output,
-con manejo de ambigüedades (AMB-1) y fallback a Smart Engine (GAP-1).
+Coordina el flujo de generación: AIRouter → EARS Formatter → Output,
+con manejo de ambigüedades (AMB-1) y failover multi-proveedor.
 
 Attributes:
     MIN_PROMPT_WORDS: Umbral mínimo de palabras para detectar prompts vagos.
@@ -10,12 +10,7 @@ Attributes:
 import os
 from typing import Any, Generator
 
-from src.sdd_generator.gemini_client import (
-    GeminiClient,
-    GeminiClientError,
-    MissingAPIKeyError,
-    RateLimitError,
-)
+from src.sdd_generator.ai_router import UniversalAIRouter, ProviderError
 from src.sdd_generator.ears_formatter import EarsFormatter
 from src.sdd_generator.smart_engine import SmartEngine
 
@@ -26,22 +21,22 @@ class SDDGenerator:
     """Orquestador principal de generación SDD EARS.
 
     Gestiona el pipeline completo: detección de ambigüedad,
-    generación con Gemini Pro o fallback, y validación EARS.
+    generación con AIRouter multi-proveedor, y validación EARS.
 
     Attributes:
-        gemini: Cliente Gemini Pro.
+        router: Router multi-proveedor de IA.
         formatter: Validador de patrones EARS.
         smart_engine: Motor de fallback local.
     """
 
-    def __init__(self, gemini_client: GeminiClient | None = None):
+    def __init__(self, ai_router: UniversalAIRouter | None = None):
         """Inicializa el generador SDD.
 
         Args:
-            gemini_client: Cliente Gemini inyectable (para testing).
-                Si None, crea uno con env var GEMINI_API_KEY.
+            ai_router: Router multi-proveedor inyectable (para testing).
+                Si None, crea uno con proveedores por defecto.
         """
-        self.gemini = gemini_client or GeminiClient()
+        self.router = ai_router or UniversalAIRouter()
         self.formatter = EarsFormatter()
         self.smart_engine = SmartEngine()
 
@@ -50,9 +45,8 @@ class SDDGenerator:
 
         Flujo:
         1. Detecta si el prompt es vago (< 5 palabras) → expande contexto.
-        2. Intenta generar con Gemini Pro.
-        3. Si falla (API key ausente o 429), usa Smart Engine fallback.
-        4. Valida patrones EARS en el output.
+        2. Invoca AIRouter (failover automático entre proveedores).
+        3. Valida patrones EARS en el output.
 
         Args:
             prompt: Descripción del proyecto o URL de repositorio.
@@ -61,92 +55,67 @@ class SDDGenerator:
             Dict con:
                 - content: Markdown SDD generado
                 - metadata: Info del modelo y generación
-                - fallback: None si usó Gemini, str con razón si usó fallback
+                - provider: Nombre del proveedor que respondió
+                - latency_ms: Tiempo de respuesta
+                - fallback: None si usó IA, str con razón si usó fallback
                 - is_ambiguous: True si se detectó prompt vago
         """
         is_ambiguous = self._is_ambiguous_prompt(prompt)
         system_prompt = self._build_system_prompt(prompt, is_ambiguous)
 
-        # Intentar generación con Gemini Pro
-        try:
-            result = self.gemini.generate(
-                prompt=prompt,
-                system_prompt=system_prompt
-            )
-            content = result["content"]
-            metadata = result.get("metadata", {})
+        result = self.router.generate(prompt=prompt, system_prompt=system_prompt)
 
-            # Validar patrones EARS
-            ears_patterns = self.formatter.validate(content)
-            metadata["ears_patterns_found"] = len(ears_patterns)
-            metadata["ears_patterns"] = [p.value for p in ears_patterns]
+        content = result["content"]
+        provider = result.get("provider", "unknown")
+        latency_ms = result.get("latency_ms", 0)
 
-            return {
-                "content": content,
-                "metadata": metadata,
-                "fallback": None,
-                "is_ambiguous": is_ambiguous
-            }
+        # Validar patrones EARS
+        ears_patterns = self.formatter.validate(content)
 
-        except MissingAPIKeyError:
-            return self._fallback_generate(prompt, is_ambiguous, reason="missing_key")
+        metadata = {
+            "model": result.get("model", "unknown"),
+            "ears_patterns_found": len(ears_patterns),
+            "ears_patterns": [p.value for p in ears_patterns],
+            "fallback_chain": result.get("fallback_chain"),
+        }
 
-        except RateLimitError:
-            return self._fallback_generate(prompt, is_ambiguous, reason="rate_limit_429")
+        is_fallback = provider == "SmartEngine"
 
-        except GeminiClientError:
-            return self._fallback_generate(prompt, is_ambiguous, reason="api_error")
+        return {
+            "content": content,
+            "metadata": metadata,
+            "provider": provider,
+            "latency_ms": latency_ms,
+            "fallback": "all_providers_failed" if is_fallback else None,
+            "is_ambiguous": is_ambiguous,
+        }
 
     def stream_generate(self, prompt: str) -> Generator[str, None, None]:
         """Genera SDD en modo streaming (chunks incrementales).
+
+        Note: Streaming usa el router síncronamente y retorna
+        el contenido completo como un solo chunk (los proveedores
+        no todos soportan streaming nativo).
 
         Args:
             prompt: Descripción del proyecto.
 
         Yields:
             Chunks de texto markdown.
-
-        Note:
-            Si Gemini no está disponible, genera el fallback completo
-            como un solo chunk.
         """
         is_ambiguous = self._is_ambiguous_prompt(prompt)
         system_prompt = self._build_system_prompt(prompt, is_ambiguous)
 
-        try:
-            for chunk in self.gemini.stream_generate(
-                prompt=prompt,
-                system_prompt=system_prompt
-            ):
-                yield chunk
-
-        except (MissingAPIKeyError, RateLimitError, GeminiClientError):
-            # Fallback: generar template completo como un solo chunk
-            result = self._fallback_generate(prompt, is_ambiguous, reason="streaming_fallback")
-            yield result["content"]
+        result = self.router.generate(prompt=prompt, system_prompt=system_prompt)
+        yield result["content"]
 
     def _is_ambiguous_prompt(self, prompt: str) -> bool:
-        """Detecta si un prompt es vago (< 5 palabras).
-
-        Args:
-            prompt: Texto del usuario.
-
-        Returns:
-            True si el prompt tiene menos de MIN_PROMPT_WORDS palabras.
-        """
+        """Detecta si un prompt es vago (< 5 palabras)."""
         words = prompt.strip().split()
         return len(words) < MIN_PROMPT_WORDS
 
     def _build_system_prompt(self, prompt: str, is_ambiguous: bool) -> str:
-        """Construye el system prompt desde el template Jinja2.
-
-        Args:
-            prompt: Texto del usuario.
-            is_ambiguous: Si el prompt fue detectado como vago.
-
-        Returns:
-            System prompt renderizado.
-        """
+        """Construye el system prompt desde el template Jinja2."""
         template_path = os.path.join(
             os.path.dirname(__file__), 'templates', 'sdd_prompt.j2'
         )
@@ -163,22 +132,13 @@ class SDDGenerator:
                 is_ambiguous=is_ambiguous
             )
         except (ImportError, FileNotFoundError):
-            # Fallback sin Jinja2: system prompt inline
             return self._inline_system_prompt(prompt)
 
     def _extract_project_name(self, prompt: str) -> str:
-        """Extrae un nombre de proyecto del prompt.
-
-        Args:
-            prompt: Texto del usuario.
-
-        Returns:
-            Nombre corto del proyecto (primeras 5 palabras o URL).
-        """
+        """Extrae un nombre de proyecto del prompt."""
         if prompt.startswith("http"):
             parts = prompt.rstrip("/").split("/")
             return parts[-1] if parts else "Proyecto"
-
         words = prompt.strip().split()
         return " ".join(words[:5]) if words else "Proyecto"
 
@@ -192,28 +152,3 @@ class SDDGenerator:
             "task plan. Return ONLY Markdown without code fences. "
             f"Project: {prompt}"
         )
-
-    def _fallback_generate(
-        self, prompt: str, is_ambiguous: bool, reason: str
-    ) -> dict[str, Any]:
-        """Genera SDD usando Smart Engine local (fallback).
-
-        Args:
-            prompt: Texto del usuario.
-            is_ambiguous: Si el prompt es vago.
-            reason: Razón del fallback (missing_key, rate_limit_429, api_error).
-
-        Returns:
-            Dict con content, metadata, fallback reason.
-        """
-        content = self.smart_engine.generate(prompt, is_ambiguous=is_ambiguous)
-
-        return {
-            "content": content,
-            "metadata": {
-                "model": "smart_engine_local",
-                "fallback_reason": reason,
-            },
-            "fallback": reason,
-            "is_ambiguous": is_ambiguous
-        }

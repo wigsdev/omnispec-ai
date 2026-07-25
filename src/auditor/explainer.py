@@ -1,21 +1,16 @@
-"""RiskExplainer — Generador de explicaciones contextuales con Gemini Role-2.
+"""RiskExplainer — Generador de explicaciones contextuales con AIRouter.
 
-Invoca Gemini Pro con System Prompt Role-2 (DevSecOps Security Auditor)
-para generar explicaciones de riesgo por hallazgo. Usa batching (hasta 5
-findings por llamada) para reducir latencia y riesgo de rate limit.
+Invoca el AIRouter multi-proveedor con System Prompt Role-2
+(DevSecOps Security Auditor) para generar explicaciones de riesgo
+por hallazgo. Usa batching (hasta 5 findings por llamada).
 
-Fallback: texto genérico si Gemini retorna 429 o no está disponible.
+Fallback: texto genérico si todos los proveedores fallan.
 """
 
 import json
 from typing import Any
 
-from src.sdd_generator.gemini_client import (
-    GeminiClient,
-    MissingAPIKeyError,
-    RateLimitError,
-    GeminiClientError,
-)
+from src.sdd_generator.ai_router import UniversalAIRouter
 
 ROLE_2_SYSTEM_PROMPT = """You are a DevSecOps Security Auditor. For each security finding provided,
 generate a JSON response with exactly these fields:
@@ -50,24 +45,55 @@ BATCH_SIZE = 5
 class RiskExplainer:
     """Generador de explicaciones contextuales de riesgo.
 
-    Usa Gemini Pro Role-2 con batching para generar explicaciones.
-    Fallback genérico si Gemini no está disponible o retorna 429.
+    Usa AIRouter multi-proveedor con batching para generar explicaciones.
+    Fallback genérico si ningún proveedor está disponible.
     """
 
-    def __init__(self, gemini_client: GeminiClient | None = None):
+    def __init__(self, ai_router: UniversalAIRouter | None = None, gemini_client=None):
         """Inicializa el explainer.
 
         Args:
-            gemini_client: Cliente Gemini inyectable. Si None, crea uno.
+            ai_router: Router multi-proveedor inyectable.
+            gemini_client: Legacy param (backward compat for tests).
         """
-        self.gemini = gemini_client or GeminiClient()
+        if gemini_client is not None:
+            # Backward compatibility: wrap legacy client
+            from src.sdd_generator.ai_router import AIProvider, ProviderError
+            from src.sdd_generator.gemini_client import (
+                GeminiClient, MissingAPIKeyError, RateLimitError, GeminiClientError,
+            )
+
+            class LegacyProvider(AIProvider):
+                name = "Gemini"
+                model = "legacy"
+
+                def __init__(self, client):
+                    self._client = client
+
+                def is_available(self):
+                    return self._client.is_available
+
+                def generate(self, prompt, system_prompt=""):
+                    try:
+                        result = self._client.generate(prompt=prompt, system_prompt=system_prompt)
+                        return result["content"]
+                    except (MissingAPIKeyError, RateLimitError, GeminiClientError) as e:
+                        raise ProviderError("Gemini", str(e))
+
+            from src.sdd_generator.ai_router import SmartEngineProvider
+            self.router = UniversalAIRouter(providers=[
+                LegacyProvider(gemini_client),
+                SmartEngineProvider(),
+            ])
+        else:
+            self.router = ai_router or UniversalAIRouter()
 
     def explain_findings(
         self, findings: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
         """Genera explicaciones para una lista de hallazgos.
 
-        Agrupa en batches de BATCH_SIZE y llama a Gemini.
+        Agrupa en batches de BATCH_SIZE y llama al AIRouter.
         Si falla, usa explicaciones genéricas.
 
         Args:
@@ -94,28 +120,19 @@ class RiskExplainer:
     def _explain_batch(
         self, batch: list[dict[str, Any]]
     ) -> list[dict[str, str]]:
-        """Explica un batch de hallazgos con Gemini Pro.
-
-        Args:
-            batch: Lista de hasta BATCH_SIZE hallazgos.
-
-        Returns:
-            Lista de explicaciones (o genéricas si falla).
-        """
-        if not self.gemini.is_available:
-            return [GENERIC_EXPLANATION] * len(batch)
-
+        """Explica un batch de hallazgos con el AIRouter."""
         prompt = self._build_batch_prompt(batch)
 
-        try:
-            result = self.gemini.generate(
-                prompt=prompt,
-                system_prompt=ROLE_2_SYSTEM_PROMPT,
-            )
-            return self._parse_explanations(result["content"], len(batch))
+        result = self.router.generate(
+            prompt=prompt,
+            system_prompt=ROLE_2_SYSTEM_PROMPT,
+        )
 
-        except (MissingAPIKeyError, RateLimitError, GeminiClientError):
+        # Si fue SmartEngine (fallback), retornar genérico
+        if result.get("provider") == "SmartEngine":
             return [GENERIC_EXPLANATION] * len(batch)
+
+        return self._parse_explanations(result["content"], len(batch))
 
     def _build_batch_prompt(self, batch: list[dict[str, Any]]) -> str:
         """Construye el prompt con el batch de findings."""
@@ -133,17 +150,8 @@ class RiskExplainer:
     def _parse_explanations(
         self, content: str, expected_count: int
     ) -> list[dict[str, str]]:
-        """Parsea la respuesta JSON de Gemini.
-
-        Args:
-            content: Texto de respuesta de Gemini.
-            expected_count: Número esperado de explicaciones.
-
-        Returns:
-            Lista de explicaciones parseadas o genéricas si falla el parse.
-        """
+        """Parsea la respuesta JSON del proveedor."""
         try:
-            # Limpiar posibles code fences
             clean = content.strip()
             if clean.startswith("```"):
                 clean = clean.split("\n", 1)[1]
@@ -160,7 +168,6 @@ class RiskExplainer:
                     "remediation": exp.get("remediation", GENERIC_EXPLANATION["remediation"]),
                 })
 
-            # Rellenar si faltan
             while len(result) < expected_count:
                 result.append(GENERIC_EXPLANATION)
 

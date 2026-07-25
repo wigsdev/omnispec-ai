@@ -581,3 +581,37 @@ body {
         padding: 1rem;
     }
 }
+
+/* ============================================
+   Provider Badge
+   ============================================ */
+.provider-badge {
+    position: fixed;
+    bottom: 2rem;
+    right: 2rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: var(--bg-card);
+    border: 1px solid var(--neon-green);
+    border-radius: var(--radius);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--neon-green);
+    z-index: 800;
+    box-shadow: var(--glow-green);
+    animation: fadeIn 0.3s ease-out;
+}
+
+.provider-badge[hidden] {
+    display: none;
+}
+
+.provider-icon {
+    font-size: 1rem;
+}
+
+.provider-text {
+    white-space: nowrap;
+}

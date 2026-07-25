@@ -51,6 +51,8 @@ def generate():
         return jsonify({
             "data": result["content"],
             "metadata": result.get("metadata", {}),
+            "provider": result.get("provider"),
+            "latency_ms": result.get("latency_ms"),
             "fallback": result.get("fallback", None)
         })
     except Exception as e:

@@ -73,6 +73,7 @@ const App = (() => {
         }
 
         StreamingPanel.clear();
+        hideProviderBadge();
         const btn = document.getElementById('btnGenerate');
         btn.disabled = true;
         btn.textContent = 'Generando...';
@@ -86,6 +87,7 @@ const App = (() => {
             if (response.data) {
                 StreamingPanel.setContent(response.data);
                 document.getElementById('btnExport').disabled = false;
+                showProviderBadge(response.provider, response.latency_ms);
             }
         } catch (err) {
             showAlert(`Error: ${err.message}`, 'error');
@@ -226,6 +228,30 @@ const App = (() => {
      */
     function hideAlert() {
         document.getElementById('alertBanner').hidden = true;
+    }
+
+    /**
+     * Muestra el badge del proveedor que respondió.
+     * @param {string} provider - Nombre del proveedor
+     * @param {number} latencyMs - Tiempo de respuesta en ms
+     */
+    function showProviderBadge(provider, latencyMs) {
+        const badge = document.getElementById('providerBadge');
+        const text = document.getElementById('providerText');
+        if (badge && text && provider) {
+            const seconds = (latencyMs / 1000).toFixed(1);
+            text.textContent = `Generado con ${provider} (${seconds}s)`;
+            badge.hidden = false;
+            setTimeout(() => { badge.hidden = true; }, 10000);
+        }
+    }
+
+    /**
+     * Oculta el badge del proveedor.
+     */
+    function hideProviderBadge() {
+        const badge = document.getElementById('providerBadge');
+        if (badge) badge.hidden = true;
     }
 
     /**
