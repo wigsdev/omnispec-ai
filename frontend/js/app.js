@@ -396,6 +396,11 @@ const App = (() => {
         btn.disabled = true;
         btn.textContent = 'Generando Fix...';
 
+        // Reset output
+        document.getElementById('fixFileTabs').hidden = true;
+        document.getElementById('fixFilePanels').innerHTML = '<p class="placeholder-text">Generando correcciones...</p>';
+        document.getElementById('testViewer').hidden = true;
+
         try {
             const response = await apiFetch('/fix/generate', {
                 method: 'POST',
@@ -406,29 +411,22 @@ const App = (() => {
             });
 
             if (response.status === 'generated') {
-                // Mostrar diff
-                DiffViewer.init('diffViewer');
-                DiffViewer.render(response.diff);
+                // Guardar estado
+                window._generatedDiff = response.diff;
+                window._generatedTests = response.tests;
+                window._fixId = response.id;
 
-                // Mostrar tests
-                const testViewer = document.getElementById('testViewer');
-                if (testViewer && response.tests) {
-                    testViewer.innerHTML = `<pre><code>${escapeHtml(response.tests)}</code></pre>`;
-                }
+                // Mostrar pestañas por archivo
+                renderFixFileTabs(response.diff, response.fixed_files_list || [], response.tests);
 
                 // Habilitar botones
                 document.getElementById('btnCreatePR').disabled = false;
                 document.getElementById('btnDownloadDiff').disabled = false;
                 document.getElementById('btnDownloadTests').disabled = false;
 
-                // Guardar para descarga
-                window._generatedDiff = response.diff;
-                window._generatedTests = response.tests;
-                window._fixId = response.id;
-
                 showProviderBadge(response.provider || 'AI', response.latency_ms || 0);
             } else if (response.status === 'no_fix_needed') {
-                showAlert('No se necesita corrección para los hallazgos seleccionados.', 'info');
+                document.getElementById('fixFilePanels').innerHTML = '<p class="placeholder-text">No se necesitan correcciones para los hallazgos seleccionados.</p>';
             } else if (response.status === 'error') {
                 showAlert(`Error: ${response.message}`, 'error');
             }
@@ -438,6 +436,93 @@ const App = (() => {
             btn.disabled = false;
             btn.textContent = 'Generar Fix';
         }
+    }
+
+    /**
+     * Renderiza pestañas por archivo fixeado + pestaña de tests.
+     */
+    function renderFixFileTabs(diff, filesList, tests) {
+        const tabsNav = document.getElementById('fixFileTabs');
+        const panels = document.getElementById('fixFilePanels');
+        const testViewer = document.getElementById('testViewer');
+
+        // Parsear diff por archivo
+        const fileDiffs = parseDiffByFile(diff);
+        const allFiles = filesList.length > 0 ? filesList : Object.keys(fileDiffs);
+
+        if (allFiles.length === 0 && !tests) {
+            panels.innerHTML = '<p class="placeholder-text">No se generaron cambios.</p>';
+            return;
+        }
+
+        // Crear tabs
+        let tabsHtml = '';
+        allFiles.forEach((file, i) => {
+            const shortName = file.split('/').pop();
+            tabsHtml += `<button class="doc-tab ${i === 0 ? 'active' : ''}" data-fix-file="${file}">${shortName}</button>`;
+        });
+        if (tests) {
+            tabsHtml += `<button class="doc-tab" data-fix-file="__tests__">tests</button>`;
+        }
+        tabsNav.innerHTML = tabsHtml;
+        tabsNav.hidden = false;
+
+        // Crear panel para el primer archivo
+        const firstFile = allFiles[0];
+        const firstDiff = fileDiffs[firstFile] || diff;
+        panels.innerHTML = `<div class="diff-viewer">${renderDiffHtml(firstDiff)}</div>`;
+
+        // Event listeners para tabs
+        tabsNav.querySelectorAll('.doc-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                tabsNav.querySelectorAll('.doc-tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+
+                const file = tab.dataset.fixFile;
+                if (file === '__tests__') {
+                    panels.innerHTML = `<pre style="background:var(--bg-primary);padding:1rem;border-radius:var(--radius);overflow-x:auto;font-size:0.8rem;color:var(--neon-green);"><code>${escapeHtml(tests)}</code></pre>`;
+                } else {
+                    const fileDiff = fileDiffs[file] || '';
+                    panels.innerHTML = `<div class="diff-viewer">${renderDiffHtml(fileDiff)}</div>`;
+                }
+            });
+        });
+
+        // Mostrar test viewer link
+        testViewer.hidden = true;
+    }
+
+    /**
+     * Parsea un unified diff multi-archivo en un dict {path: diff_text}.
+     */
+    function parseDiffByFile(diff) {
+        if (!diff) return {};
+        const files = {};
+        const sections = diff.split(/(?=^--- a\/)/m);
+
+        for (const section of sections) {
+            const match = section.match(/^--- a\/(.+)/m);
+            if (match) {
+                files[match[1]] = section.trim();
+            }
+        }
+        return files;
+    }
+
+    /**
+     * Renderiza texto diff como HTML con colores.
+     */
+    function renderDiffHtml(diffText) {
+        if (!diffText) return '<p class="placeholder-text">Sin cambios para este archivo.</p>';
+        const lines = diffText.split('\n');
+        return lines.map(line => {
+            let cls = 'diff-line--context';
+            if (line.startsWith('+') && !line.startsWith('+++')) cls = 'diff-line--added';
+            else if (line.startsWith('-') && !line.startsWith('---')) cls = 'diff-line--removed';
+            else if (line.startsWith('@@')) cls = 'diff-line--header';
+            else if (line.startsWith('---') || line.startsWith('+++')) cls = 'diff-line--header';
+            return `<div class="diff-line ${cls}">${escapeHtml(line)}</div>`;
+        }).join('');
     }
 
     /**
@@ -711,34 +796,74 @@ const App = (() => {
             </div>
         `;
 
-        btnDeny.hidden = true;
+        btnDeny.hidden = false;
+        btnDeny.textContent = 'Cerrar';
         btnGrant.textContent = 'Abrir Pull Request';
         btnGrant.style.borderColor = 'var(--neon-green)';
         btnGrant.style.color = 'var(--neon-green)';
 
         modal.hidden = false;
 
-        // Override del handler del botón
-        const handler = () => {
-            window.open(prUrl, '_blank');
+        const cleanup = () => {
             modal.hidden = true;
             btnDeny.hidden = false;
-            btnGrant.removeEventListener('click', handler);
-        };
-        btnGrant.addEventListener('click', handler);
-
-        // Cerrar con X o Escape
-        const closeHandler = () => {
-            modal.hidden = true;
-            btnDeny.hidden = false;
-            btnGrant.removeEventListener('click', handler);
+            btnGrant.removeEventListener('click', openHandler);
             document.removeEventListener('keydown', escHandler);
+            // Actualizar lista: remover hallazgos ya fixeados
+            removeFixedFindings();
         };
-        const escHandler = (e) => { if (e.key === 'Escape') closeHandler(); };
+
+        const openHandler = () => {
+            window.open(prUrl, '_blank');
+            cleanup();
+        };
+        btnGrant.addEventListener('click', openHandler);
+
+        const escHandler = (e) => { if (e.key === 'Escape') cleanup(); };
         document.addEventListener('keydown', escHandler);
-        btnDeny.onclick = closeHandler;
-        btnDeny.hidden = false;
-        btnDeny.textContent = 'Cerrar';
+        btnDeny.onclick = cleanup;
+    }
+
+    /**
+     * Remueve los hallazgos fixeados de la lista y resetea el output.
+     */
+    function removeFixedFindings() {
+        // Obtener indices de los que estaban seleccionados (fixeados)
+        const checkboxes = document.querySelectorAll('#fixFindings input[name="finding"]:checked');
+        const fixedIndices = new Set(Array.from(checkboxes).map(cb => parseInt(cb.value)));
+
+        // Filtrar: mantener solo los NO fixeados
+        const allFindings = window._auditFindings || [];
+        const remaining = allFindings.filter((_, i) => !fixedIndices.has(i));
+        window._auditFindings = remaining;
+
+        // Reset output panels completo (lado derecho)
+        document.getElementById('fixFileTabs').hidden = true;
+        document.getElementById('fixFileTabs').innerHTML = '';
+        document.getElementById('fixFilePanels').innerHTML = '<p class="placeholder-text">El diff aparecerá aquí...</p>';
+        document.getElementById('testViewer').hidden = true;
+        document.getElementById('btnCreatePR').disabled = true;
+        document.getElementById('btnDownloadDiff').disabled = true;
+        document.getElementById('btnDownloadTests').disabled = true;
+        window._fixId = null;
+        window._generatedDiff = '';
+        window._generatedTests = '';
+
+        // Actualizar la lista (lado izquierdo)
+        if (remaining.length > 0) {
+            populateFixFindings();
+        } else {
+            document.getElementById('fixFindings').innerHTML = `
+                <div style="text-align:center; padding: 2rem; color: var(--neon-green);">
+                    <div style="font-size: 2rem; margin-bottom: 0.5rem;">&#10004;</div>
+                    <p>Todos los hallazgos fueron corregidos.</p>
+                    <p style="color: var(--text-secondary); font-size: 0.8rem; margin-top: 0.5rem;">
+                        Ejecuta una nueva auditoría para verificar.
+                    </p>
+                </div>
+            `;
+            document.getElementById('btnGenerateFix').disabled = true;
+        }
     }
 
     /**

@@ -85,6 +85,7 @@ def generate_fix():
             "diff": diff_result.get("diff", ""),
             "tests": test_result["test_content"],
             "files_changed": diff_result.get("files_changed", 0),
+            "fixed_files_list": list(diff_result.get("fixed_files", {}).keys()),
             "provider": diff_result.get("provider"),
             "latency_ms": diff_result.get("latency_ms"),
         }), 200

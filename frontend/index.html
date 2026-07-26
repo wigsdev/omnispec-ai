@@ -159,10 +159,16 @@
                     </div>
                 </div>
                 <div class="output-section">
-                    <div class="diff-viewer" id="diffViewer" aria-label="Vista previa del diff">
-                        <p class="placeholder-text">El diff aparecerá aquí...</p>
+                    <!-- Sub-tabs por archivo fixeado -->
+                    <nav class="doc-tabs" id="fixFileTabs" hidden>
+                        <!-- Se llena dinámicamente -->
+                    </nav>
+                    <div class="fix-file-panels" id="fixFilePanels">
+                        <div class="diff-viewer" id="diffViewer" aria-label="Vista previa del diff">
+                            <p class="placeholder-text">El diff aparecerá aquí...</p>
+                        </div>
                     </div>
-                    <div class="test-viewer" id="testViewer" aria-label="Tests generados">
+                    <div class="test-viewer" id="testViewer" aria-label="Tests generados" hidden>
                         <p class="placeholder-text">Los tests aparecerán aquí...</p>
                     </div>
                     <div class="action-bar">
