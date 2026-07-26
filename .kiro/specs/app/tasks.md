@@ -275,3 +275,46 @@ graph LR
 - SSE streaming funciona end-to-end (auditoría progresiva)
 - Los 197+ tests unitarios pasan sin modificación
 - `sam deploy` exitoso sin errores
+
+---
+
+## Tarea 7: CI/CD Pipeline con GitHub Actions
+
+**Scope**: Automatizar tests, build y deploy a AWS en cada push/merge a main.
+
+**Justificación**: Eliminar deploys manuales, garantizar que código roto no llegue a producción, y habilitar flujo profesional de desarrollo colaborativo.
+
+### Subtareas
+
+- [ ] 7.1 Crear `.github/workflows/ci.yml` — Pipeline de Integración Continua:
+  - Trigger: Pull Request a `main`
+  - Steps: checkout → setup Python 3.12 → install deps → `pytest` (197+ tests) → `ruff check`
+  - Si falla: bloquea el merge del PR
+
+- [ ] 7.2 Crear `.github/workflows/cd.yml` — Pipeline de Deploy Continuo:
+  - Trigger: Push a `main` (después del merge)
+  - Steps: checkout → setup Python 3.12 → configure AWS credentials → `sam build` → `sam deploy` → `aws s3 sync frontend/` → `aws cloudfront create-invalidation`
+  - Secrets de GitHub: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`
+
+- [ ] 7.3 Configurar GitHub Secrets en el repositorio:
+  - `AWS_ACCESS_KEY_ID` (IAM user con permisos de deploy)
+  - `AWS_SECRET_ACCESS_KEY`
+  - `AWS_REGION` = `us-east-1`
+
+- [ ] 7.4 Crear IAM User `omnispec-deployer` con política mínima:
+  - CloudFormation, Lambda, API Gateway, S3, DynamoDB, ECR, CloudFront, IAM (create roles), SSM (read)
+
+- [ ] 7.5 Configurar branch protection en `main`:
+  - Requerir PR para merge (no push directo)
+  - Requerir que CI pase antes de merge
+
+- [ ] 7.6 Verificar pipeline end-to-end:
+  - Crear PR con cambio menor → CI pasa → merge → CD despliega automáticamente
+
+**Criterios de completitud (DoD)**:
+- Push directo a `main` está bloqueado (requiere PR)
+- Cada PR ejecuta tests automáticamente
+- Si los tests fallan, el PR no se puede mergear
+- Cada merge a `main` despliega automáticamente a producción
+- El deploy incluye: Lambda + frontend S3 + invalidación CloudFront
+- Secrets de AWS NO están en el código (solo en GitHub Secrets)
