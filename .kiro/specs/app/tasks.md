@@ -174,15 +174,19 @@
 
 ### Subtareas
 
-- [ ] 5.1 Crear `infra/app.py` — CDK App entry point con environment config (account, region)
-- [ ] 5.2 Implementar `infra/stacks/api_stack.py` — API Gateway REST + Lambda Python 3.11 con `serverless-wsgi` adapter, environment variables (GEMINI_API_KEY, GITHUB_TOKEN desde Secrets Manager)
-- [ ] 5.3 Implementar `infra/stacks/storage_stack.py` — DynamoDB tables: `omnispec-cache` (pk: CACHE#hash, sk: v#version, TTL enabled) y `omnispec-audit-log` (pk: USER#id, sk: ACTION#timestamp)
-- [ ] 5.4 Configurar IAM roles con mínimo privilegio: Lambda solo accede a sus tablas DynamoDB específicas, Secrets Manager read-only para API keys
-- [ ] 5.5 Crear `infra/stacks/auth_stack.py` — API Key management para rate limiting y autenticación de requests
-- [ ] 5.6 Configurar DynamoDB TTL en atributo `ttl` para expiración automática de cache entries
-- [ ] 5.7 Crear `infra/cdk.json` con configuración de app, context values, y feature flags
-- [ ] 5.8 Escribir `pyproject.toml` en raíz con dependencias del proyecto (flask, google-generativeai, boto3, aws-cdk-lib, pytest, ruff, mypy)
-- [ ] 5.9 Verificar: `cdk synth` genera template CloudFormation válido sin errores
+- [x] 5.1 Crear `infra/app.py` — CDK App entry point con environment config (account, region)
+- [x] 5.2 Implementar `infra/stacks/api_stack.py` — API Gateway REST + Lambda Python 3.11 con `serverless-wsgi` adapter, environment variables (GEMINI_API_KEY, GITHUB_TOKEN desde Secrets Manager)
+- [x] 5.3 Implementar `infra/stacks/storage_stack.py` — DynamoDB tables: `omnispec-cache` (pk: CACHE#hash, sk: v#version, TTL enabled) y `omnispec-audit-log` (pk: USER#id, sk: ACTION#timestamp)
+- [x] 5.4 Configurar IAM roles con mínimo privilegio: Lambda solo accede a sus tablas DynamoDB específicas, Secrets Manager read-only para API keys
+- [x] 5.5 Crear `infra/stacks/auth_stack.py` — API Key management para rate limiting y autenticación de requests
+- [x] 5.6 Configurar DynamoDB TTL en atributo `ttl` para expiración automática de cache entries
+- [x] 5.7 Crear `infra/cdk.json` con configuración de app, context values, y feature flags
+- [x] 5.8 Escribir `pyproject.toml` en raíz con dependencias del proyecto (flask, google-generativeai, boto3, aws-cdk-lib, pytest, ruff, mypy)
+- [x] 5.9 Verificar: `cdk synth` genera template CloudFormation válido sin errores
+
+> **Nota de implementación**: Se usó SAM (template.yaml) en vez de CDK por simplicidad de deploy.
+> Lambda empaquetada como Container Image (Dockerfile) con Python 3.12 y serverless-wsgi.
+> Secrets inyectados desde SSM Parameter Store (no Secrets Manager, más económico).
 
 **Criterios de completitud (DoD)**:
 - `cdk synth` produce template CloudFormation válido
@@ -240,3 +244,34 @@ graph LR
 | EDGE-1 | `tests/api/test_streaming_timeout.py` | `test_sse_sends_chunks_every_5s`, `test_timeout_warning_at_25s` | T2 |
 | EDGE-1 | `tests/pr_engine/test_fixer.py` | `test_fix_generation_timeout_returns_partial` | T4 |
 | EDGE-2 | `tests/auditor/test_empty_repo.py` | `test_empty_repo_returns_score_na`, `test_file_over_256kb_is_skipped`, `test_unsupported_formats_only_returns_extensions_list` | T3 |
+
+---
+
+## Tarea 6: Deuda Técnica — Migración de WSGI Adapter: serverless-wsgi → Mangum
+
+**Scope**: Migración del adapter Lambda de serverless-wsgi a Mangum para mejor soporte de Flask moderno, SSE Streaming y ASGI.
+
+**Justificación**: Mangum tiene mejor soporte para Flask moderno (3.x), manejo nativo de Server-Sent Events (SSE) para streaming del Auditor 3D y generación SDD, y es el adapter recomendado por la comunidad para frameworks Python en Lambda. serverless-wsgi está en mantenimiento mínimo.
+
+**Prioridad**: Baja (no bloqueante — serverless-wsgi funciona correctamente para el MVP)
+
+### Subtareas
+
+- [ ] 6.1 Reemplazar `serverless-wsgi` por `mangum>=0.17` en `requirements.txt`
+- [ ] 6.2 Actualizar `src/api/lambda_handler.py`:
+  ```python
+  from mangum import Mangum
+  from src.api.app import create_app
+  app = create_app()
+  handler = Mangum(app, lifespan="off")
+  ```
+- [ ] 6.3 Verificar compatibilidad Flask 3.x + Mangum (WSGI-to-ASGI wrapper requerido si Mangum no lo hace nativo)
+- [ ] 6.4 Ejecutar `pytest tests/infra/ -v` y confirmar que los 6 tests pasen
+- [ ] 6.5 Verificar SSE streaming en `/api/v1/audit/stream` funciona via API Gateway HTTP API
+- [ ] 6.6 Deploy de prueba con `sam build && sam deploy` y validar health check
+
+**Criterios de completitud (DoD)**:
+- Lambda responde correctamente con Mangum como adapter
+- SSE streaming funciona end-to-end (auditoría progresiva)
+- Los 197+ tests unitarios pasan sin modificación
+- `sam deploy` exitoso sin errores
