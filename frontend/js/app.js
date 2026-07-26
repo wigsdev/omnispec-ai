@@ -528,7 +528,7 @@ const App = (() => {
             });
 
             if (response.status === 'pr_created') {
-                showAlert(`Pull Request creado: ${response.pr_url}`, 'success');
+                showPRSuccess(response.pr_url, response.branch);
             } else if (response.status === 'validation_failed') {
                 showAlert(`Tests fallaron — PR no creado. ${response.pytest_output || ''}`, 'error');
             } else {
@@ -677,6 +677,68 @@ const App = (() => {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
+    }
+
+    /**
+     * Muestra modal de éxito al crear PR con link para abrir en nueva ventana.
+     * @param {string} prUrl - URL del Pull Request creado
+     * @param {string} branch - Nombre de la rama creada
+     */
+    function showPRSuccess(prUrl, branch) {
+        const modal = document.getElementById('permissionModal');
+        const title = document.getElementById('modalTitle');
+        const body = document.getElementById('modalBody');
+        const btnGrant = document.getElementById('modalGrant');
+        const btnDeny = document.getElementById('modalDeny');
+
+        title.textContent = 'Pull Request Creado Exitosamente';
+        title.style.color = 'var(--neon-green)';
+
+        body.innerHTML = `
+            <div style="text-align:center; padding: 1rem 0;">
+                <div style="font-size: 3rem; margin-bottom: 1rem;">&#10004;</div>
+                <p style="color: var(--neon-green); font-size: 1.1rem; font-weight: 600;">
+                    El Pull Request fue creado correctamente
+                </p>
+                <div class="permission-scope" style="margin: 1.5rem 0; text-align: left;">
+                    <strong>Rama:</strong> <code>${branch || 'fix/omnispec-patch'}</code><br>
+                    <strong>URL:</strong> <a href="${prUrl}" target="_blank" rel="noopener"
+                        style="color: var(--neon-cyan); word-break: break-all;">${prUrl}</a>
+                </div>
+                <p style="color: var(--text-secondary); font-size: 0.85rem;">
+                    Haz click en el enlace para revisar los cambios propuestos en GitHub.
+                </p>
+            </div>
+        `;
+
+        btnDeny.hidden = true;
+        btnGrant.textContent = 'Abrir Pull Request';
+        btnGrant.style.borderColor = 'var(--neon-green)';
+        btnGrant.style.color = 'var(--neon-green)';
+
+        modal.hidden = false;
+
+        // Override del handler del botón
+        const handler = () => {
+            window.open(prUrl, '_blank');
+            modal.hidden = true;
+            btnDeny.hidden = false;
+            btnGrant.removeEventListener('click', handler);
+        };
+        btnGrant.addEventListener('click', handler);
+
+        // Cerrar con X o Escape
+        const closeHandler = () => {
+            modal.hidden = true;
+            btnDeny.hidden = false;
+            btnGrant.removeEventListener('click', handler);
+            document.removeEventListener('keydown', escHandler);
+        };
+        const escHandler = (e) => { if (e.key === 'Escape') closeHandler(); };
+        document.addEventListener('keydown', escHandler);
+        btnDeny.onclick = closeHandler;
+        btnDeny.hidden = false;
+        btnDeny.textContent = 'Cerrar';
     }
 
     /**

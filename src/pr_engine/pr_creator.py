@@ -209,10 +209,18 @@ class PRCreator:
         return r.json()["tree"]["sha"]
 
     def _resolve_branch_name(self, owner: str, repo: str) -> str:
-        """Nombre de rama con timestamp fallback."""
-        if self._branch_exists(owner, repo, self._base_branch_name):
-            return f"{self._base_branch_name}-{int(time.time())}"
-        return self._base_branch_name
+        """Nombre de rama con sufijo incremental si ya existe."""
+        base = self._base_branch_name
+        if not self._branch_exists(owner, repo, base):
+            return base
+        # Buscar siguiente número disponible: fix/omnispec-patch-2, -3, etc.
+        for i in range(2, 100):
+            candidate = f"{base}-{i}"
+            if not self._branch_exists(owner, repo, candidate):
+                return candidate
+        # Último recurso: timestamp
+        import time
+        return f"{base}-{int(time.time())}"
 
     def _branch_exists(self, owner: str, repo: str, branch: str) -> bool:
         """Verifica si una rama existe."""

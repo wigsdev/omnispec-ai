@@ -43,14 +43,18 @@ def generate_fix():
     test_gen = TestSuiteGenerator()
 
     try:
-        # Fetch archivos originales si tenemos repo URL (para fix directo)
+        # Fetch archivos originales usando token del usuario o sin token (público)
         repo_files = None
         if repo_url:
             try:
                 from src.auditor.github_fetcher import GitHubFetcher
-                fetcher = GitHubFetcher()
+                from src.api.routes.auth import get_user_github_token
+                user_token = get_user_github_token()
+                fetcher = GitHubFetcher(token=user_token)
                 repo_files = [f for f in fetcher.fetch_repo_files(repo_url) if not f.get('skipped')]
-            except Exception:
+            except Exception as fetch_err:
+                # Log pero continuar sin archivos (generará solo diff)
+                print(f"[fixer] Warning: could not fetch files: {fetch_err}")
                 repo_files = None
 
         diff_result = fixer.generate(findings, files=repo_files)
