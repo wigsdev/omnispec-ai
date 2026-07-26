@@ -714,39 +714,72 @@ const App = (() => {
     }
 
     /**
-     * Abre popup de OAuth y pollea /auth/status hasta que esté autenticado.
-     * La ventana principal NO navega — nada se pierde.
+     * Abre popup de OAuth y pollea /auth/poll/{id} hasta que complete.
      * @returns {Promise<boolean>} true si autenticado exitosamente.
      */
     function openGitHubAuthPopup() {
-        return new Promise((resolve) => {
+        return new Promise(async (resolve) => {
+            // 1. Pedir request_id al servidor
+            let requestId;
+            try {
+                const startResp = await apiFetch('/auth/start', { method: 'POST' });
+                requestId = startResp.request_id;
+            } catch (e) {
+                showAlert('Error iniciando autenticación.', 'error');
+                resolve(false);
+                return;
+            }
+
+            // 2. Abrir popup con request_id
             const width = 500, height = 600;
             const left = (screen.width - width) / 2;
             const top = (screen.height - height) / 2;
-
             const popup = window.open(
-                '/api/v1/auth/login',
+                `/api/v1/auth/login?request_id=${requestId}`,
                 'omnispec-github-auth',
                 `width=${width},height=${height},left=${left},top=${top}`
             );
 
-            // Polling: preguntar al servidor si ya estamos autenticados
+            // 3. Polling: preguntar al servidor si el auth completó
             const poll = setInterval(async () => {
                 try {
-                    const data = await apiFetch('/auth/status');
-                    if (data.authenticated && data.user) {
+                    const resp = await fetch(`${API_BASE}/auth/poll/${requestId}`);
+                    const data = await resp.json();
+
+                    if (data.status === 'authenticated') {
                         clearInterval(poll);
                         showGitHubUser(data.user);
                         showAlert(`Conectado como ${data.user.login}`, 'success');
                         if (popup && !popup.closed) popup.close();
                         resolve(true);
+                    } else if (data.status === 'error') {
+                        clearInterval(poll);
+                        showAlert(`Error: ${data.error}`, 'error');
+                        resolve(false);
+                    } else if (data.status === 'expired') {
+                        clearInterval(poll);
+                        showAlert('Sesión expirada. Intenta de nuevo.', 'warning');
+                        resolve(false);
                     }
-                } catch { /* ignore */ }
+                } catch { /* ignore network errors during polling */ }
 
-                // Si el usuario cerró el popup sin completar
+                // Si el popup se cerró sin completar
                 if (popup && popup.closed) {
+                    // Dar un último intento
+                    setTimeout(async () => {
+                        try {
+                            const resp = await fetch(`${API_BASE}/auth/poll/${requestId}`);
+                            const data = await resp.json();
+                            if (data.status === 'authenticated') {
+                                showGitHubUser(data.user);
+                                showAlert(`Conectado como ${data.user.login}`, 'success');
+                                resolve(true);
+                            } else {
+                                resolve(false);
+                            }
+                        } catch { resolve(false); }
+                    }, 1000);
                     clearInterval(poll);
-                    resolve(false);
                 }
             }, 1500);
         });
