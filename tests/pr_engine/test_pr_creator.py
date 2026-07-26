@@ -49,6 +49,11 @@ def mock_session():
                 return branch_check
             if "/git/ref/heads/" in url:
                 return ref_resp
+            if "/git/commits/" in url:
+                commit_obj = MagicMock()
+                commit_obj.status_code = 200
+                commit_obj.json.return_value = {"tree": {"sha": "tree_sha_123"}}
+                return commit_obj
             if "/contents/" in url:
                 return contents_check
             return repo_resp
@@ -57,11 +62,15 @@ def mock_session():
         session.post.return_value = create_ref
         session.put.return_value = put_file
 
-        # PR creation
+        # PR creation and git operations
         def side_effect_post(url, **kwargs):
             if "/pulls" in url:
                 return pr_resp
-            return create_ref
+            # blobs, trees, commits, refs — all return 201
+            resp = MagicMock()
+            resp.status_code = 201
+            resp.json.return_value = {"sha": "new_sha_123"}
+            return resp
 
         session.post.side_effect = side_effect_post
 
@@ -111,6 +120,11 @@ class TestPRCreation:
                 resp = MagicMock()
                 resp.status_code = 200
                 resp.json.return_value = {"object": {"sha": "abc123"}}
+                return resp
+            if "/git/commits/" in url:
+                resp = MagicMock()
+                resp.status_code = 200
+                resp.json.return_value = {"tree": {"sha": "tree_abc"}}
                 return resp
             if "/contents/" in url:
                 resp = MagicMock()

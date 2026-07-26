@@ -918,19 +918,20 @@ body {
     align-items: center;
     gap: 0.4rem;
     padding: 0.4rem 0.8rem;
-    border: 1px solid var(--text-muted);
+    border: 1px solid var(--neon-green);
     border-radius: var(--radius);
-    color: var(--text-primary);
+    color: var(--neon-green);
     font-family: var(--font-mono);
     font-size: 0.75rem;
     text-decoration: none;
+    background: none;
+    cursor: pointer;
     transition: var(--transition);
 }
 
 .btn-github:hover {
-    border-color: var(--neon-cyan);
-    color: var(--neon-cyan);
-    box-shadow: var(--glow-cyan);
+    background: rgba(0, 255, 136, 0.1);
+    box-shadow: var(--glow-green);
 }
 
 .github-user {

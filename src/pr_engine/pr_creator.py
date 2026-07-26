@@ -123,12 +123,18 @@ class PRCreator:
     ) -> str:
         """Commitea múltiples archivos usando Git Trees API (atómico).
 
-        Crea blobs → tree → commit → update ref.
+        Crea blobs → tree (basado en tree del commit) → commit → update ref.
         """
-        tree_items = []
+        # Obtener tree SHA del commit (base_tree necesita tree, no commit)
+        r = self._session.get(
+            f"{GITHUB_API}/repos/{owner}/{repo}/git/commits/{base_sha}"
+        )
+        if r.status_code != 200:
+            raise PRCreationError(f"Commit {base_sha} no encontrado")
+        tree_base_sha = r.json()["tree"]["sha"]
 
+        tree_items = []
         for path, content in files.items():
-            # Crear blob para cada archivo
             blob_sha = self._create_blob(owner, repo, content)
             tree_items.append({
                 "path": path,
@@ -137,29 +143,25 @@ class PRCreator:
                 "sha": blob_sha,
             })
 
-        # Crear tree
+        # Crear tree preservando archivos existentes
         r = self._session.post(
             f"{GITHUB_API}/repos/{owner}/{repo}/git/trees",
-            json={"base_tree": base_sha, "tree": tree_items}
+            json={"base_tree": tree_base_sha, "tree": tree_items}
         )
         if r.status_code not in (200, 201):
             raise PRCreationError(f"Error creando tree: {r.status_code}")
-        tree_sha = r.json()["sha"]
+        new_tree_sha = r.json()["sha"]
 
         # Crear commit
         r = self._session.post(
             f"{GITHUB_API}/repos/{owner}/{repo}/git/commits",
-            json={
-                "message": message,
-                "tree": tree_sha,
-                "parents": [base_sha],
-            }
+            json={"message": message, "tree": new_tree_sha, "parents": [base_sha]}
         )
         if r.status_code not in (200, 201):
             raise PRCreationError(f"Error creando commit: {r.status_code}")
         commit_sha = r.json()["sha"]
 
-        # Actualizar referencia de la rama
+        # Actualizar ref de la rama
         r = self._session.patch(
             f"{GITHUB_API}/repos/{owner}/{repo}/git/refs/heads/{branch}",
             json={"sha": commit_sha}
@@ -189,13 +191,22 @@ class PRCreator:
         return r.json().get("default_branch", "main")
 
     def _get_branch_sha(self, owner: str, repo: str, branch: str) -> str:
-        """Obtiene el SHA del HEAD."""
+        """Obtiene el SHA del HEAD commit."""
         r = self._session.get(
             f"{GITHUB_API}/repos/{owner}/{repo}/git/ref/heads/{branch}"
         )
         if r.status_code != 200:
             raise PRCreationError(f"Rama '{branch}' no encontrada")
         return r.json()["object"]["sha"]
+
+    def _get_tree_sha(self, owner: str, repo: str, commit_sha: str) -> str:
+        """Obtiene el tree SHA de un commit (necesario para Git Trees API)."""
+        r = self._session.get(
+            f"{GITHUB_API}/repos/{owner}/{repo}/git/commits/{commit_sha}"
+        )
+        if r.status_code != 200:
+            raise PRCreationError(f"Commit {commit_sha} no encontrado")
+        return r.json()["tree"]["sha"]
 
     def _resolve_branch_name(self, owner: str, repo: str) -> str:
         """Nombre de rama con timestamp fallback."""

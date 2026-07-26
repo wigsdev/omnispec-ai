@@ -1,176 +1,143 @@
-"""Auth Routes — GitHub OAuth Authentication Flow.
+"""Auth Routes — GitHub OAuth via Popup + Polling.
 
-Implementa el flujo OAuth 2.0 de GitHub para obtener tokens
-de acceso del usuario. El token se almacena en sesión y se
-usa para crear PRs en nombre del usuario.
+El flujo:
+1. Ventana principal abre popup → /auth/login
+2. Popup redirige a GitHub → usuario autoriza
+3. GitHub redirige a /auth/callback → guarda token en sesión
+4. Callback muestra "Listo, cierra esta ventana"
+5. Ventana principal pollea /auth/status cada 1s
+6. Detecta authenticated=true → actualiza UI → continúa
 
-Endpoints:
-    GET  /api/v1/auth/login    — Redirige a GitHub para login
-    GET  /api/v1/auth/callback — Callback de GitHub con code
-    GET  /api/v1/auth/status   — Estado de autenticación actual
-    POST /api/v1/auth/logout   — Elimina el token de sesión
+No usa postMessage ni localStorage. La cookie de sesión es
+compartida entre popup y parent (mismo dominio).
 """
 
 import os
 import secrets
 
 import requests
-from flask import Blueprint, jsonify, redirect, request, session
+from flask import Blueprint, jsonify, make_response, redirect, request, session
 
 auth_bp = Blueprint('auth', __name__)
 
 GITHUB_OAUTH_URL = "https://github.com/login/oauth/authorize"
 GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
 GITHUB_USER_URL = "https://api.github.com/user"
-
-# Scopes requeridos: repo (para crear PRs) + read:user (para perfil)
 OAUTH_SCOPES = "repo,read:user"
 
 
 @auth_bp.route('/api/v1/auth/login', methods=['GET'])
 def github_login():
-    """Inicia el flujo OAuth redirigiendo a GitHub.
-
-    Genera un state token para prevenir CSRF y redirige
-    al usuario a la página de autorización de GitHub.
-    """
+    """Redirige a GitHub para autorización OAuth."""
     client_id = os.environ.get("GITHUB_OAUTH_CLIENT_ID", "")
     if not client_id:
-        return jsonify({
-            "error": "config_error",
-            "message": "GITHUB_OAUTH_CLIENT_ID no configurado"
-        }), 500
+        return jsonify({"error": "GITHUB_OAUTH_CLIENT_ID no configurado"}), 500
 
-    # Generar state para CSRF protection
-    state = secrets.token_urlsafe(32)
+    state = secrets.token_urlsafe(16)
     session['oauth_state'] = state
 
-    # Construir URL de autorización
+    callback_url = os.environ.get("APP_BASE_URL", "http://localhost:5000")
     params = (
         f"?client_id={client_id}"
         f"&scope={OAUTH_SCOPES}"
         f"&state={state}"
-        f"&redirect_uri={_get_callback_url()}"
+        f"&redirect_uri={callback_url}/api/v1/auth/callback"
     )
-
     return redirect(GITHUB_OAUTH_URL + params)
 
 
 @auth_bp.route('/api/v1/auth/callback', methods=['GET'])
 def github_callback():
-    """Callback de GitHub OAuth.
-
-    Intercambia el code por un access_token y almacena
-    el token + info del usuario en sesión.
-    """
+    """Callback de GitHub. Guarda token y muestra página de cierre."""
     code = request.args.get('code')
-    state = request.args.get('state')
     error = request.args.get('error')
 
-    if error:
-        return _redirect_to_app(f"?auth_error={error}")
+    if error or not code:
+        return _close_page(success=False, error=error or "no_code")
 
-    # Validar state (CSRF protection)
-    if state != session.get('oauth_state'):
-        return _redirect_to_app("?auth_error=invalid_state")
-
-    # Intercambiar code por access_token
+    # Intercambiar code por token
     client_id = os.environ.get("GITHUB_OAUTH_CLIENT_ID", "")
     client_secret = os.environ.get("GITHUB_OAUTH_CLIENT_SECRET", "")
 
-    token_response = requests.post(
-        GITHUB_TOKEN_URL,
-        data={
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "code": code,
-        },
-        headers={"Accept": "application/json"},
-        timeout=10,
-    )
+    resp = requests.post(GITHUB_TOKEN_URL, data={
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "code": code,
+    }, headers={"Accept": "application/json"}, timeout=10)
 
-    if token_response.status_code != 200:
-        return _redirect_to_app("?auth_error=token_exchange_failed")
+    if resp.status_code != 200:
+        return _close_page(success=False, error="token_exchange_failed")
 
-    token_data = token_response.json()
-    access_token = token_data.get("access_token")
-
+    access_token = resp.json().get("access_token")
     if not access_token:
-        error_desc = token_data.get("error_description", "Unknown error")
-        return _redirect_to_app(f"?auth_error={error_desc}")
+        return _close_page(success=False, error=resp.json().get("error_description", "no_token"))
 
     # Obtener info del usuario
-    user_response = requests.get(
-        GITHUB_USER_URL,
-        headers={
-            "Authorization": f"Bearer {access_token}",
-            "Accept": "application/vnd.github.v3+json",
-        },
-        timeout=10,
-    )
+    user_resp = requests.get(GITHUB_USER_URL, headers={
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/vnd.github.v3+json",
+    }, timeout=10)
 
-    user_data = {}
-    if user_response.status_code == 200:
-        user_data = user_response.json()
+    user_data = user_resp.json() if user_resp.status_code == 200 else {}
 
-    # Guardar en sesión
+    # Guardar en sesión (compartida con la ventana principal via cookie)
     session['github_token'] = access_token
     session['github_user'] = {
         "login": user_data.get("login", "unknown"),
         "avatar_url": user_data.get("avatar_url", ""),
         "name": user_data.get("name", ""),
     }
+    session.pop('oauth_state', None)
 
-    return _redirect_to_app("?auth_success=true")
+    return _close_page(success=True, user=session['github_user']['login'])
 
 
 @auth_bp.route('/api/v1/auth/status', methods=['GET'])
 def auth_status():
-    """Retorna el estado de autenticación del usuario."""
+    """Retorna estado de autenticación. Polleado por el frontend."""
     token = session.get('github_token')
     user = session.get('github_user')
-
     if token and user:
-        return jsonify({
-            "authenticated": True,
-            "user": user,
-        })
-
-    return jsonify({
-        "authenticated": False,
-        "user": None,
-    })
+        return jsonify({"authenticated": True, "user": user})
+    return jsonify({"authenticated": False, "user": None})
 
 
 @auth_bp.route('/api/v1/auth/logout', methods=['POST'])
 def logout():
-    """Elimina el token y datos de sesión."""
+    """Cierra sesión."""
     session.pop('github_token', None)
     session.pop('github_user', None)
-    session.pop('oauth_state', None)
-    return jsonify({"status": "ok", "message": "Sesión cerrada"})
+    return jsonify({"status": "ok"})
 
 
 def get_user_github_token() -> str | None:
-    """Obtiene el token GitHub del usuario actual desde la sesión.
-
-    Usado por PRCreator para crear PRs en nombre del usuario.
-
-    Returns:
-        Token de acceso o None si no autenticado.
-    """
+    """Obtiene el token del usuario autenticado."""
     return session.get('github_token')
 
 
-def _get_callback_url() -> str:
-    """Construye la URL de callback basada en el host actual."""
-    base_url = os.environ.get(
-        "APP_BASE_URL", "http://localhost:5000"
-    )
-    return f"{base_url}/api/v1/auth/callback"
+def _close_page(success: bool, error: str = "", user: str = "") -> str:
+    """HTML que muestra resultado y se puede cerrar."""
+    if success:
+        html = f"""<!DOCTYPE html>
+<html><head><title>OmniSpec AI</title>
+<style>body{{background:#0d1117;color:#00ff88;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}}
+.box{{text-align:center;border:1px solid #00ff88;padding:2rem;border-radius:8px}}</style></head>
+<body><div class="box">
+<h2>Conectado como {user}</h2>
+<p>Puedes cerrar esta ventana.</p>
+<script>setTimeout(()=>window.close(),2000)</script>
+</div></body></html>"""
+    else:
+        html = f"""<!DOCTYPE html>
+<html><head><title>OmniSpec AI — Error</title>
+<style>body{{background:#0d1117;color:#ff3b3b;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}}
+.box{{text-align:center;border:1px solid #ff3b3b;padding:2rem;border-radius:8px}}</style></head>
+<body><div class="box">
+<h2>Error de autenticación</h2>
+<p>{error}</p>
+<p>Cierra esta ventana e intenta de nuevo.</p>
+</div></body></html>"""
 
-
-def _redirect_to_app(query: str = "") -> str:
-    """Redirige al frontend de la app."""
-    base_url = os.environ.get("APP_BASE_URL", "http://localhost:5000")
-    return redirect(f"{base_url}/{query}")
+    response = make_response(html)
+    response.headers['Content-Type'] = 'text/html'
+    return response

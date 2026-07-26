@@ -33,7 +33,13 @@ def create_app() -> Flask:
     )
 
     # Session config (for OAuth tokens)
-    app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-in-production")
+    secret_key = os.environ.get("FLASK_SECRET_KEY")
+    if not secret_key:
+        import warnings
+        warnings.warn("FLASK_SECRET_KEY not set! Sessions won't persist across restarts.")
+        import secrets as _s
+        secret_key = _s.token_urlsafe(32)
+    app.secret_key = secret_key
     app.config['SESSION_COOKIE_HTTPONLY'] = True
     app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 

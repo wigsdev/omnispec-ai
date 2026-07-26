@@ -79,6 +79,13 @@ const App = (() => {
         }
 
         // GitHub logout
+        // GitHub login
+        const btnGithubLogin = document.getElementById('btnGithubLogin');
+        if (btnGithubLogin) {
+            btnGithubLogin.addEventListener('click', () => openGitHubAuthPopup());
+        }
+
+        // GitHub logout
         const btnLogout = document.getElementById('btnLogout');
         if (btnLogout) {
             btnLogout.addEventListener('click', handleLogout);
@@ -484,11 +491,15 @@ const App = (() => {
      * Handler: Crear Pull Request.
      */
     async function handleCreatePR() {
-        // Verificar autenticación primero
+        // Verificar autenticación — abrir popup si no conectado
         const authStatus = await apiFetch('/auth/status');
         if (!authStatus.authenticated) {
-            showAlert('Debes conectar tu cuenta de GitHub primero. Click "Conectar GitHub" en el header.', 'warning');
-            return;
+            showAlert('Conectando con GitHub...', 'info');
+            const connected = await openGitHubAuthPopup();
+            if (!connected) {
+                showAlert('Necesitas conectar GitHub para crear Pull Requests.', 'warning');
+                return;
+            }
         }
 
         const repoUrl = window._auditRepoUrl || document.getElementById('repoUrl').value.trim();
@@ -687,7 +698,7 @@ const App = (() => {
     }
 
     /**
-     * Verifica estado de autenticación de GitHub.
+     * Verifica estado de autenticación de GitHub al iniciar.
      */
     async function checkGitHubAuth() {
         try {
@@ -700,18 +711,45 @@ const App = (() => {
         } catch {
             showGitHubLogin();
         }
+    }
 
-        // Check URL params for auth callback
-        const params = new URLSearchParams(window.location.search);
-        if (params.get('auth_success')) {
-            showAlert('GitHub conectado exitosamente.', 'success');
-            window.history.replaceState({}, '', '/');
-            checkGitHubAuth();
-        }
-        if (params.get('auth_error')) {
-            showAlert(`Error de autenticación: ${params.get('auth_error')}`, 'error');
-            window.history.replaceState({}, '', '/');
-        }
+    /**
+     * Abre popup de OAuth y pollea /auth/status hasta que esté autenticado.
+     * La ventana principal NO navega — nada se pierde.
+     * @returns {Promise<boolean>} true si autenticado exitosamente.
+     */
+    function openGitHubAuthPopup() {
+        return new Promise((resolve) => {
+            const width = 500, height = 600;
+            const left = (screen.width - width) / 2;
+            const top = (screen.height - height) / 2;
+
+            const popup = window.open(
+                '/api/v1/auth/login',
+                'omnispec-github-auth',
+                `width=${width},height=${height},left=${left},top=${top}`
+            );
+
+            // Polling: preguntar al servidor si ya estamos autenticados
+            const poll = setInterval(async () => {
+                try {
+                    const data = await apiFetch('/auth/status');
+                    if (data.authenticated && data.user) {
+                        clearInterval(poll);
+                        showGitHubUser(data.user);
+                        showAlert(`Conectado como ${data.user.login}`, 'success');
+                        if (popup && !popup.closed) popup.close();
+                        resolve(true);
+                    }
+                } catch { /* ignore */ }
+
+                // Si el usuario cerró el popup sin completar
+                if (popup && popup.closed) {
+                    clearInterval(poll);
+                    resolve(false);
+                }
+            }, 1500);
+        });
     }
 
     /**
