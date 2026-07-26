@@ -62,7 +62,7 @@ Resources:
   OmniSpecApi:
     Type: AWS::Serverless::HttpApi
     Properties:
-      StageName: !Ref Stage
+      StageName: $default
 
   # ============================================
   # DynamoDB — Cache Table
@@ -155,7 +155,6 @@ Resources:
 
           - Id: ApiGateway
             DomainName: !Sub '${OmniSpecApi}.execute-api.${AWS::Region}.amazonaws.com'
-            OriginPath: !Sub '/${Stage}'
             CustomOriginConfig:
               HTTPSPort: 443
               OriginProtocolPolicy: https-only
@@ -201,7 +200,7 @@ Resources:
 Outputs:
   ApiUrl:
     Description: API Gateway URL
-    Value: !Sub 'https://${OmniSpecApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}/'
+    Value: !Sub 'https://${OmniSpecApi}.execute-api.${AWS::Region}.amazonaws.com/'
 
   CloudFrontUrl:
     Description: CloudFront Distribution URL (producción)
