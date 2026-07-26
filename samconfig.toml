@@ -1,0 +1,19 @@
+# SAM CLI Configuration — OmniSpec AI
+# Deploy: sam build && sam deploy
+
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "omnispec-ai"
+region = "us-east-1"
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = false
+resolve_s3 = true
+resolve_image_repos = true
+image_repositories = ["OmniSpecFunction=omnispec-ai-repo"]
+
+[default.build.parameters]
+use_container = true
+
+[default.local_invoke.parameters]
+env_vars = ".env.json"
