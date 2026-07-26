@@ -102,11 +102,12 @@ class PRCreator:
             files_to_commit, commit_message
         )
 
-        # Crear PR
+        # Crear PR con título generado por IA
+        pr_title = self._build_pr_title(findings)
         pr_body = self._build_pr_body(findings, diff, fixed_files)
         pr_url = self._open_pull_request(
             owner, repo, branch_name, default_branch,
-            commit_message, pr_body
+            pr_title, pr_body
         )
 
         return {
@@ -242,23 +243,125 @@ class PRCreator:
             return parts[-2], parts[-1]
         return "unknown", "unknown"
 
+    def _build_pr_title(self, findings: list[dict[str, Any]]) -> str:
+        """Genera título del PR con IA (conciso y profesional)."""
+        from src.sdd_generator.ai_router import UniversalAIRouter
+
+        severities = [f.get('severity', '') for f in findings]
+        critical_count = severities.count('critical')
+        high_count = severities.count('high')
+
+        prompt = (
+            f"Generate a Pull Request title for a security fix.\n\n"
+            f"Findings: {len(findings)} total ({critical_count} critical, {high_count} high)\n"
+            f"Types: {', '.join(set(f.get('type', '?') for f in findings[:5]))}\n\n"
+            f"Rules:\n"
+            f"- Max 60 characters\n"
+            f"- Start with an emoji (🔒 or 🛡️)\n"
+            f"- Be specific about what was fixed\n"
+            f"- Write in Spanish\n"
+            f"- Return ONLY the title, nothing else"
+        )
+
+        try:
+            router = UniversalAIRouter()
+            result = router.generate(prompt=prompt, system_prompt="")
+            title = result["content"].strip().split("\n")[0][:70]
+            if len(title) > 10:
+                return title
+        except Exception:
+            pass
+
+        # Fallback
+        count = len(findings)
+        return f"🔒 fix(security): remediación de {count} vulnerabilidades detectadas"
+
     def _build_commit_message(self, findings: list[dict[str, Any]]) -> str:
-        """Commit message convencional."""
+        """Genera commit message con IA (profesional y contextual)."""
+        from src.sdd_generator.ai_router import UniversalAIRouter
+
+        findings_summary = ", ".join(
+            f"{f.get('description', '?')} ({f.get('file', '?')})"
+            for f in findings[:5]
+        )
+
+        prompt = (
+            f"Generate a git commit message in Conventional Commits format for a security fix.\n\n"
+            f"Findings fixed: {findings_summary}\n"
+            f"Files affected: {len(findings)}\n\n"
+            f"Rules:\n"
+            f"- Format: fix(security): <concise description in English>\n"
+            f"- Max 72 characters\n"
+            f"- Return ONLY the commit message, nothing else\n"
+            f"- Be specific about what was fixed"
+        )
+
+        try:
+            router = UniversalAIRouter()
+            result = router.generate(prompt=prompt, system_prompt="")
+            msg = result["content"].strip().split("\n")[0][:72]
+            if msg.startswith("fix("):
+                return msg
+        except Exception:
+            pass
+
+        # Fallback sin IA
         if findings:
             count = len(findings)
-            desc = findings[0].get('description', 'security vulnerability')
             if count > 1:
                 return f"fix(security): remediate {count} security findings"
-            return f"fix(security): {desc}"
+            return f"fix(security): {findings[0].get('description', 'security vulnerability')}"
         return "fix(security): remediate security findings"
 
     def _build_pr_body(
         self, findings: list[dict[str, Any]], diff: str,
         fixed_files: dict[str, str] | None = None
     ) -> str:
-        """Construye el body del PR."""
+        """Genera título y body del PR con IA (profesional y contextual)."""
+        from src.sdd_generator.ai_router import UniversalAIRouter
+
+        findings_text = "\n".join(
+            f"- [{f.get('severity', '?')}] {f.get('description', '?')} in {f.get('file', '?')}:{f.get('line', '?')}"
+            for f in findings
+        )
+        files_text = "\n".join(f"- {p}" for p in (fixed_files or {}).keys())
+
+        prompt = (
+            f"Generate a professional Pull Request description in Markdown for a security fix.\n\n"
+            f"## Context\n"
+            f"Security findings remediated:\n{findings_text}\n\n"
+            f"Files modified:\n{files_text}\n\n"
+            f"## Rules\n"
+            f"- Write in Spanish\n"
+            f"- Start with a brief executive summary (2-3 lines)\n"
+            f"- Include a section '## Hallazgos Corregidos' with a table (Severity | Description | File)\n"
+            f"- Include a section '## Archivos Modificados' listing changed files\n"
+            f"- Include a section '## Impacto' explaining the security improvement\n"
+            f"- Include a section '## Validación' explaining how to verify the fix\n"
+            f"- End with a footer: '---\\n> Generado por OmniSpec AI — Auto-Fix Engine'\n"
+            f"- Return ONLY the Markdown, no code fences around it\n"
+            f"- Be professional, concise, and security-focused"
+        )
+
+        try:
+            router = UniversalAIRouter()
+            result = router.generate(prompt=prompt, system_prompt="")
+            body = result["content"].strip()
+            if len(body) > 100:
+                return body
+        except Exception:
+            pass
+
+        # Fallback sin IA
+        return self._build_pr_body_fallback(findings, diff, fixed_files)
+
+    def _build_pr_body_fallback(
+        self, findings: list[dict[str, Any]], diff: str,
+        fixed_files: dict[str, str] | None = None
+    ) -> str:
+        """Fallback: body del PR sin IA."""
         sections = [
-            "## 🔒 Security Fix — OmniSpec AI\n",
+            "## Security Fix — OmniSpec AI\n",
             "### Hallazgos Corregidos\n"
         ]
         for f in findings:
@@ -276,5 +379,5 @@ class PRCreator:
         if diff:
             sections.append(f"\n### Diff Preview\n```diff\n{diff[:4000]}\n```")
 
-        sections.append("\n---\n> 🤖 Generado por **OmniSpec AI** — Auto-Fix Engine")
+        sections.append("\n---\n> Generado por **OmniSpec AI** — Auto-Fix Engine")
         return "\n".join(sections)

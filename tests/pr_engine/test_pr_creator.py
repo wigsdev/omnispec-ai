@@ -138,8 +138,8 @@ class TestPRCreation:
         findings = [{"severity": "critical", "description": "AWS key exposed",
                      "file": "config.py", "line": 5}]
         msg = creator._build_commit_message(findings)
-        assert msg.startswith("fix(security):")
-        assert "AWS key exposed" in msg
+        # IA genera el mensaje; verificar que contiene "fix" o "security"
+        assert "fix" in msg.lower() or "security" in msg.lower()
 
     def test_parse_repo_url_extracts_owner_repo(self):
         creator = PRCreator(github_token="fake")
@@ -151,7 +151,7 @@ class TestPRCreation:
         creator = PRCreator(github_token="fake")
         findings = [{"severity": "critical", "description": "Secret exposed",
                      "file": "x.py", "line": 1}]
-        body = creator._build_pr_body(findings, "diff", "tests")
+        body = creator._build_pr_body_fallback(findings, "diff", None)
         assert "Secret exposed" in body
         assert "diff" in body
 
