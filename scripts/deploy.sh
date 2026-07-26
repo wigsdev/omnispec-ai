@@ -39,6 +39,11 @@ CF_URL=$(aws cloudformation describe-stacks \
   --query "Stacks[0].Outputs[?OutputKey=='CloudFrontUrl'].OutputValue" \
   --output text)
 
+API_URL=$(aws cloudformation describe-stacks \
+  --stack-name "${STACK_NAME}" \
+  --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue" \
+  --output text)
+
 # 4. Sync frontend to S3
 echo "🌐 Uploading frontend to S3..."
 aws s3 sync frontend/ "s3://${BUCKET_NAME}/" \
@@ -50,7 +55,7 @@ DIST_ID=$(aws cloudfront list-distributions \
   --query "DistributionList.Items[?Comment=='OmniSpec AI - ${STAGE}'].Id" \
   --output text)
 
-if [ -n "${DIST_ID}" ]; then
+if [ -n "${DIST_ID}" ] && [ "${DIST_ID}" != "None" ]; then
   echo "🔄 Invalidating CloudFront cache..."
   aws cloudfront create-invalidation \
     --distribution-id "${DIST_ID}" \
@@ -61,4 +66,5 @@ echo ""
 echo "============================================"
 echo "✅ Deploy complete!"
 echo "🌐 URL: ${CF_URL}"
+echo "🔌 API: ${API_URL}"
 echo "============================================"
