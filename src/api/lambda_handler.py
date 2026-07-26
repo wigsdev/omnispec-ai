@@ -31,6 +31,7 @@ def _load_ssm_secrets():
         f"{ssm_prefix}/groq-api-key": "GROQ_API_KEY",
         f"{ssm_prefix}/github-oauth-client-secret": "GITHUB_OAUTH_CLIENT_SECRET",
         f"{ssm_prefix}/flask-secret-key": "FLASK_SECRET_KEY",
+        f"{ssm_prefix}/app-base-url": "APP_BASE_URL",
     }
 
     try:
