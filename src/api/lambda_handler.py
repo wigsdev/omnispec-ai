@@ -1,7 +1,7 @@
-"""Lambda Handler — Punto de entrada para AWS Lambda.
+"""Lambda Handler — Punto de entrada para AWS Lambda via Mangum.
 
-Usa serverless-wsgi para adaptar Flask (WSGI) a eventos Lambda.
-Compatible con API Gateway HTTP API v2.
+Adapta la app Flask (WSGI) a eventos Lambda + API Gateway.
+Usa asgiref para convertir WSGI→ASGI, luego Mangum adapta ASGI→Lambda.
 """
 
 import os
@@ -11,13 +11,13 @@ from dotenv import load_dotenv
 # Cargar .env en desarrollo local (en Lambda usa env vars del template)
 load_dotenv()
 
-import serverless_wsgi
+from asgiref.wsgi import WsgiToAsgi
+from mangum import Mangum
 from src.api.app import create_app
 
-# Crear app Flask
+# Crear app Flask (WSGI)
 app = create_app()
 
-
-def handler(event, context):
-    """Lambda handler — convierte evento API GW → WSGI → Flask."""
-    return serverless_wsgi.handle_request(app, event, context)
+# Convertir WSGI → ASGI → Lambda handler
+asgi_app = WsgiToAsgi(app)
+handler = Mangum(asgi_app, lifespan="off")

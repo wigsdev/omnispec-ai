@@ -257,16 +257,16 @@ graph LR
 
 ### Subtareas
 
-- [ ] 6.1 Reemplazar `serverless-wsgi` por `mangum>=0.17` en `requirements.txt`
-- [ ] 6.2 Actualizar `src/api/lambda_handler.py`:
+- [x] 6.1 Reemplazar `serverless-wsgi` por `mangum>=0.17` en `requirements.txt`
+- [x] 6.2 Actualizar `src/api/lambda_handler.py`:
   ```python
   from mangum import Mangum
   from src.api.app import create_app
   app = create_app()
   handler = Mangum(app, lifespan="off")
   ```
-- [ ] 6.3 Verificar compatibilidad Flask 3.x + Mangum (WSGI-to-ASGI wrapper requerido si Mangum no lo hace nativo)
-- [ ] 6.4 Ejecutar `pytest tests/infra/ -v` y confirmar que los 6 tests pasen
+- [x] 6.3 Verificar compatibilidad Flask 3.x + Mangum (WSGI-to-ASGI wrapper requerido si Mangum no lo hace nativo)
+- [x] 6.4 Ejecutar `pytest tests/infra/ -v` y confirmar que los 6 tests pasen
 - [ ] 6.5 Verificar SSE streaming en `/api/v1/audit/stream` funciona via API Gateway HTTP API
 - [ ] 6.6 Deploy de prueba con `sam build && sam deploy` y validar health check
 

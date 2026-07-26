@@ -90,7 +90,7 @@ class TestLambdaHealthCheck:
         event = _make_apigw_event("GET", "/api/v1/health")
         response = handler(event, {})
 
-        # serverless-wsgi retorna dict con statusCode
+        # Mangum retorna dict con statusCode
         assert "statusCode" in response
         assert response["statusCode"] == 200
         body = json.loads(response["body"])
