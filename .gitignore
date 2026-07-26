@@ -49,3 +49,10 @@ htmlcov/
 
 # ruff
 .ruff_cache/
+
+# AWS SAM build artifacts
+.aws-sam/
+
+# Temporary test scripts
+test_*.py
+!tests/
