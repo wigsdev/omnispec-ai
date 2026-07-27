@@ -10,7 +10,7 @@ Attributes:
 import os
 from typing import Any, Generator
 
-from src.sdd_generator.ai_router import UniversalAIRouter, ProviderError
+from src.sdd_generator.ai_router import UniversalAIRouter
 from src.sdd_generator.ears_formatter import EarsFormatter
 from src.sdd_generator.smart_engine import SmartEngine
 

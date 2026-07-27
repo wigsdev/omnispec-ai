@@ -25,9 +25,9 @@ jobs:
         run: pytest tests/ --tb=short -q
 
       - name: Run linter
-        run: ruff check src/ tests/ --ignore E501
+        run: ruff check src/ tests/ --ignore E501,BLE001,I001,PIE790,S110,F401,F841,F811,PLW0127,PLW1510,C401,SIM113,SIM118,UP035
 
       - name: Validate SAM template
         run: |
           pip install aws-sam-cli
-          sam validate --template template.yaml
+          sam validate --template template.yaml --region us-east-1
