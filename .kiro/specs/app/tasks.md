@@ -267,8 +267,8 @@ graph LR
   ```
 - [x] 6.3 Verificar compatibilidad Flask 3.x + Mangum (WSGI-to-ASGI wrapper requerido si Mangum no lo hace nativo)
 - [x] 6.4 Ejecutar `pytest tests/infra/ -v` y confirmar que los 6 tests pasen
-- [ ] 6.5 Verificar SSE streaming en `/api/v1/audit/stream` funciona via API Gateway HTTP API
-- [ ] 6.6 Deploy de prueba con `sam build && sam deploy` y validar health check
+- [x] 6.5 Verificar SSE streaming en `/api/v1/audit/stream` funciona via API Gateway HTTP API
+- [x] 6.6 Deploy de prueba con `sam build && sam deploy` y validar health check
 
 **Criterios de completitud (DoD)**:
 - Lambda responde correctamente con Mangum como adapter
@@ -296,19 +296,19 @@ graph LR
   - Steps: checkout → setup Python 3.12 → configure AWS credentials → `sam build` → `sam deploy` → `aws s3 sync frontend/` → `aws cloudfront create-invalidation`
   - Secrets de GitHub: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`
 
-- [ ] 7.3 Configurar GitHub Secrets en el repositorio:
+- [x] 7.3 Configurar GitHub Secrets en el repositorio:
   - `AWS_ACCESS_KEY_ID` (IAM user con permisos de deploy)
   - `AWS_SECRET_ACCESS_KEY`
   - `AWS_REGION` = `us-east-1`
 
-- [ ] 7.4 Crear IAM User `omnispec-deployer` con política mínima:
+- [x] 7.4 Crear IAM User `omnispec-deployer` con política mínima:
   - CloudFormation, Lambda, API Gateway, S3, DynamoDB, ECR, CloudFront, IAM (create roles), SSM (read)
 
-- [ ] 7.5 Configurar branch protection en `main`:
+- [x] 7.5 Configurar branch protection en `main`:
   - Requerir PR para merge (no push directo)
   - Requerir que CI pase antes de merge
 
-- [ ] 7.6 Verificar pipeline end-to-end:
+- [x] 7.6 Verificar pipeline end-to-end:
   - Crear PR con cambio menor → CI pasa → merge → CD despliega automáticamente
 
 **Criterios de completitud (DoD)**:

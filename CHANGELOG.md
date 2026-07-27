@@ -7,6 +7,45 @@ y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
 ---
 
+## [0.7.0] — 2026-07-27
+
+### Added
+- CI/CD Pipeline completo con GitHub Actions.
+  - `ci.yml`: ejecuta pytest (197 tests) + ruff + sam validate en cada PR a `main`.
+  - `cd.yml`: sam build → sam deploy → s3 sync → CloudFront invalidation en cada merge a `main`.
+- Loading spinner en el botón "Crear Pull Request" durante la autenticación OAuth y creación del PR (UX).
+- Branch protection en `main`: PR obligatorio, CI debe pasar antes de mergear.
+- GitHub Secrets configurados: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`.
+- IAM User `omnispec-deployer` con política de mínimo privilegio para deploys automatizados.
+
+### Changed
+- Lambda adapter migrado de `serverless-wsgi` a `Mangum` para mejor soporte Flask 3.x + SSE.
+- `lambda_handler.py` reescrito con `Mangum(app, lifespan="off")` como handler principal.
+- Secrets cargados desde SSM Parameter Store en runtime (no como env vars de Lambda).
+
+### Fixed
+- `sam validate` requería región explícita en CI → añadido `--region us-east-1`.
+
+---
+
+## [0.6.0] — 2026-07-27
+
+### Added
+- Despliegue completo en AWS: Lambda (contenedor Docker Python 3.12) + API Gateway HTTP + DynamoDB + S3 + CloudFront + SSM.
+- Stack SAM `omnispec-ai-prod` en `us-east-1`.
+- Frontend servido desde CloudFront CDN: https://d140eqoid6qg8h.cloudfront.net
+- API Gateway: https://pbamtxrcw5.execute-api.us-east-1.amazonaws.com/
+- `scripts/deploy.sh` y `scripts/setup_ssm_params.sh` para deploy reproducible.
+- `Dockerfile` multi-stage con imagen base `public.ecr.aws/lambda/python:3.12`.
+- `template.yaml` SAM con `$default` stage (sin prefijo en rutas).
+
+### Fixed
+- Dependencia circular CloudFront ↔ FrontendBucketPolicy: eliminado ARN de CloudFront, usando `SourceAccount` en bucket policy.
+- Stage `$default` en API Gateway (evita prefijo `/prod` que rompía las rutas Flask).
+- SSM secrets cargados via `boto3` en runtime (no soportado como `{{resolve:ssm-secure}}` en Lambda env vars).
+
+---
+
 ## [0.4.0] — 2026-07-25
 
 ### Added
