@@ -22,14 +22,36 @@ class TestAWSKeyDetection:
         findings = detector.scan(files)
         assert len(findings) == 1
         assert findings[0]["type"] == "aws_access_key"
-        assert findings[0]["severity"] == "critical"
+        # AKIAIOSFODNN7EXAMPLE es el ejemplo canónico de AWS docs → severidad 'low'
+        # (valor conocido como ejemplo, no una clave real filtrada)
+        assert findings[0]["severity"] == "low"
 
     def test_detects_aws_key_in_env_file(self, detector):
         files = [{"path": ".env", "content": "AWS_KEY=AKIAIOSFODNN7EXAMPLE"}]
         findings = detector.scan(files)
         assert len(findings) == 1
 
-    def test_no_false_positive_short_akia(self, detector):
+    def test_detects_real_aws_key_as_critical(self, detector):
+        """Una clave AWS que no es ejemplo conocido → severidad 'critical'."""
+        files = [{"path": "config.py", "content": "key = 'AKIAABCDEF1234567890'"}]
+        findings = detector.scan(files)
+        assert len(findings) == 1
+        assert findings[0]["severity"] == "critical"
+        assert findings[0]["penalty"] == 20
+
+    def test_aws_key_in_test_file_is_info(self, detector):
+        """AWS key (no ejemplo) en archivo de test → severidad 'info', penalty 0."""
+        files = [{"path": "tests/test_config.py", "content": "key = 'AKIAABCDEF1234567890'"}]
+        findings = detector.scan(files)
+        assert len(findings) == 1
+        assert findings[0]["severity"] == "info"
+        assert findings[0]["penalty"] == 0
+
+    def test_known_example_in_test_file_is_discarded(self, detector):
+        """Valor de ejemplo canónico en archivo de test → descartado completamente."""
+        files = [{"path": "tests/test_structural.py", "content": "key = 'AKIAIOSFODNN7EXAMPLE'"}]
+        findings = detector.scan(files)
+        assert len(findings) == 0
         files = [{"path": "x.py", "content": "AKIA_SHORT"}]
         findings = detector.scan(files)
         assert len(findings) == 0

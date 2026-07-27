@@ -10,7 +10,7 @@ Attributes:
 
 from typing import Any
 
-from src.auditor.structural import SecretsDetector
+from src.auditor.structural import SecretsDetector, _is_test_file
 from src.auditor.quality import IaCInspector
 from src.auditor.compliance import GovernanceChecker
 from src.auditor.report import ScoreCalculator
@@ -70,7 +70,12 @@ class AuditScanner:
             }
 
         # Ejecutar inspecciones
-        secrets_findings = self.secrets_detector.scan(analyzable)
+        # Enriquecer archivos con contexto de test antes de pasar al detector
+        analyzable_with_context = [
+            {**f, "is_test_file": _is_test_file(f.get("path", ""))}
+            for f in analyzable
+        ]
+        secrets_findings = self.secrets_detector.scan(analyzable_with_context)
         iac_findings = self.iac_inspector.scan(analyzable)
         # Governance checks against ALL files (needs to see README, CHANGELOG, etc.)
         governance_findings = self.governance_checker.check(files)
