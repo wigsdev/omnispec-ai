@@ -286,12 +286,12 @@ graph LR
 
 ### Subtareas
 
-- [ ] 7.1 Crear `.github/workflows/ci.yml` — Pipeline de Integración Continua:
+- [x] 7.1 Crear `.github/workflows/ci.yml` — Pipeline de Integración Continua:
   - Trigger: Pull Request a `main`
   - Steps: checkout → setup Python 3.12 → install deps → `pytest` (197+ tests) → `ruff check`
   - Si falla: bloquea el merge del PR
 
-- [ ] 7.2 Crear `.github/workflows/cd.yml` — Pipeline de Deploy Continuo:
+- [x] 7.2 Crear `.github/workflows/cd.yml` — Pipeline de Deploy Continuo:
   - Trigger: Push a `main` (después del merge)
   - Steps: checkout → setup Python 3.12 → configure AWS credentials → `sam build` → `sam deploy` → `aws s3 sync frontend/` → `aws cloudfront create-invalidation`
   - Secrets de GitHub: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`

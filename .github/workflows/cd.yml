@@ -1,0 +1,66 @@
+name: CD — Deploy to AWS
+
+on:
+  push:
+    branches: [main]
+
+env:
+  STACK_NAME: omnispec-ai-prod
+  AWS_REGION: us-east-1
+  FRONTEND_BUCKET: omnispec-frontend-prod-646231577852
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install SAM CLI
+        run: pip install aws-sam-cli
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: SAM Build
+        run: sam build --use-container
+
+      - name: SAM Deploy
+        run: |
+          sam deploy \
+            --stack-name ${{ env.STACK_NAME }} \
+            --no-confirm-changeset \
+            --capabilities CAPABILITY_IAM \
+            --resolve-image-repos \
+            --resolve-s3
+
+      - name: Sync Frontend to S3
+        run: |
+          aws s3 sync frontend/ s3://${{ env.FRONTEND_BUCKET }}/ \
+            --delete \
+            --cache-control "public, max-age=3600"
+
+      - name: Invalidate CloudFront Cache
+        run: |
+          DIST_ID=$(aws cloudfront list-distributions \
+            --query "DistributionList.Items[?Comment=='OmniSpec AI - prod'].Id" \
+            --output text)
+          if [ -n "$DIST_ID" ] && [ "$DIST_ID" != "None" ]; then
+            aws cloudfront create-invalidation \
+              --distribution-id "$DIST_ID" \
+              --paths "/*"
+          fi
+
+      - name: Output URLs
+        run: |
+          echo "🌐 Frontend: https://d140eqoid6qg8h.cloudfront.net"
+          echo "🔌 API: $(aws cloudformation describe-stacks --stack-name ${{ env.STACK_NAME }} --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue" --output text)"
