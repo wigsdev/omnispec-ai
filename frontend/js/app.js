@@ -576,11 +576,16 @@ const App = (() => {
      * Handler: Crear Pull Request.
      */
     async function handleCreatePR() {
+        const btn = document.getElementById('btnCreatePR');
+
         // Verificar autenticación — abrir popup si no conectado
         const authStatus = await apiFetch('/auth/status');
         if (!authStatus.authenticated) {
-            showAlert('Conectando con GitHub...', 'info');
+            btn.innerHTML = '<span class="spinner"></span>Conectando...';
+            btn.classList.add('loading');
             const connected = await openGitHubAuthPopup();
+            btn.innerHTML = 'Crear Pull Request';
+            btn.classList.remove('loading');
             if (!connected) {
                 showAlert('Necesitas conectar GitHub para crear Pull Requests.', 'warning');
                 return;
@@ -603,6 +608,10 @@ const App = (() => {
             return;
         }
 
+        // Spinner mientras se crea el PR
+        btn.innerHTML = '<span class="spinner"></span>Creando PR...';
+        btn.classList.add('loading');
+
         try {
             const response = await apiFetch('/fix/apply', {
                 method: 'POST',
@@ -621,6 +630,9 @@ const App = (() => {
             }
         } catch (err) {
             showAlert(`Error: ${err.message}`, 'error');
+        } finally {
+            btn.innerHTML = 'Crear Pull Request';
+            btn.classList.remove('loading');
         }
     }
 
