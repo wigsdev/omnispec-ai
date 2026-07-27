@@ -21,6 +21,9 @@ from typing import Any
 
 # Regex non-greedy para prevenir ReDoS (recomendación del Review)
 SECRET_PATTERNS = {
+    # ------------------------------------------------------------------ #
+    # Patrones originales                                                  #
+    # ------------------------------------------------------------------ #
     "aws_access_key": {
         "regex": re.compile(r"AKIA[0-9A-Z]{16}"),
         "severity": "critical",
@@ -52,6 +55,116 @@ SECRET_PATTERNS = {
         "severity": "critical",
         "penalty": 20,
         "description": "Clave privada PEM expuesta",
+    },
+
+    # ------------------------------------------------------------------ #
+    # Connection strings con credenciales embebidas                        #
+    # ------------------------------------------------------------------ #
+    "connection_string_db": {
+        "regex": re.compile(
+            r"""(?:jdbc|mongodb(?:\+srv)?|postgresql|mysql|mssql|redis|amqp)"""
+            r"""://[^:@\s]{1,100}:[^@\s]{1,200}@[^\s'"]{1,300}""",
+            re.IGNORECASE
+        ),
+        "severity": "critical",
+        "penalty": 20,
+        "description": "Connection string con credenciales embebidas",
+    },
+
+    # ------------------------------------------------------------------ #
+    # API keys genéricas en asignaciones y JSON/YAML                       #
+    # ------------------------------------------------------------------ #
+    "generic_api_key": {
+        "regex": re.compile(
+            r"""(?:api[_\-]?key|apikey|x[_\-]api[_\-]key|access[_\-]?key)"""
+            r"""[\s"'\]]*[=:]\s*['"]?[A-Za-z0-9\-._]{20,}['"]?""",
+            re.IGNORECASE
+        ),
+        "severity": "high",
+        "penalty": 15,
+        "description": "API key genérica expuesta",
+    },
+    "generic_secret": {
+        "regex": re.compile(
+            r"""(?:secret[_\-]?key|client[_\-]?secret|app[_\-]?secret)"""
+            r"""\s*[=:]\s*['"][^'"]{8,200}['"]""",
+            re.IGNORECASE
+        ),
+        "severity": "high",
+        "penalty": 15,
+        "description": "Secret key genérico expuesto",
+    },
+
+    # ------------------------------------------------------------------ #
+    # Tokens de plataformas y CI/CD                                        #
+    # ------------------------------------------------------------------ #
+    "github_token": {
+        "regex": re.compile(
+            r"""(?:gh[pousr]|github_pat)_[A-Za-z0-9_]{30,}""",
+            re.IGNORECASE
+        ),
+        "severity": "critical",
+        "penalty": 20,
+        "description": "GitHub Personal Access Token expuesto",
+    },
+    "slack_token": {
+        "regex": re.compile(
+            r"""xox[bpars]-[0-9A-Za-z\-]{10,}"""
+        ),
+        "severity": "critical",
+        "penalty": 20,
+        "description": "Slack token expuesto",
+    },
+    "stripe_key": {
+        "regex": re.compile(
+            r"""(?:sk|rk)_(?:live|test)_[0-9A-Za-z]{20,}"""
+        ),
+        "severity": "critical",
+        "penalty": 20,
+        "description": "Stripe secret key expuesta",
+    },
+    "ci_token_hardcoded": {
+        "regex": re.compile(
+            r"""(?:CIRCLE_TOKEN|TRAVIS_TOKEN|CI_TOKEN|JENKINS_TOKEN|SONAR_TOKEN)"""
+            r"""\s*[=:]\s*['"]?[A-Za-z0-9\-_]{10,}['"]?""",
+            re.IGNORECASE
+        ),
+        "severity": "high",
+        "penalty": 15,
+        "description": "Token de CI/CD hardcoded",
+    },
+
+    # ------------------------------------------------------------------ #
+    # Google Cloud / Service Account                                       #
+    # ------------------------------------------------------------------ #
+    "google_service_account": {
+        "regex": re.compile(
+            r""""type"\s*:\s*"service_account\""""
+        ),
+        "severity": "critical",
+        "penalty": 20,
+        "description": "Google Service Account key file detectado",
+    },
+    "google_api_key": {
+        "regex": re.compile(
+            r"""AIza[0-9A-Za-z\-_]{35}"""
+        ),
+        "severity": "critical",
+        "penalty": 20,
+        "description": "Google API Key expuesta",
+    },
+
+    # ------------------------------------------------------------------ #
+    # NPM y registros de paquetes                                          #
+    # ------------------------------------------------------------------ #
+    "npm_auth_token": {
+        "regex": re.compile(
+            r"""(?://[^:]+:)?_authToken\s*=\s*[A-Za-z0-9\-_]{20,}""",
+            re.IGNORECASE
+        ),
+        "severity": "critical",
+        "penalty": 20,
+        "description": "NPM auth token expuesto en .npmrc",
     },
 }
 

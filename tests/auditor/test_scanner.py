@@ -85,3 +85,134 @@ class TestGemini429Fallback:
 
         result = explainer.explain_findings(findings)
         assert result[0]["explanation"] == GENERIC_EXPLANATION
+
+
+class TestSupportedExtensions:
+    """Tests de extensiones soportadas en el nuevo conjunto ampliado."""
+
+    def test_javascript_file_is_analyzed(self, scanner):
+        """Archivos .js son analizados."""
+        files = [{"path": "server.js", "content": "const key = 'AKIAABCDEF1234567890'", "size_kb": 1}]
+        result = scanner.scan("https://github.com/test/repo", files)
+        assert result["score"] is not None
+        assert len(result["findings"]["secrets"]) >= 1
+
+    def test_typescript_file_is_analyzed(self, scanner):
+        """Archivos .ts son analizados."""
+        files = [{"path": "config.ts", "content": "export const API_KEY = 'abcdefghijklmnopqrstuvwxyz123'", "size_kb": 1}]
+        result = scanner.scan("https://github.com/test/repo", files)
+        assert result["score"] is not None
+
+    def test_java_file_is_analyzed(self, scanner):
+        """Archivos .java son analizados."""
+        files = [{"path": "src/Config.java", "content": 'String url = "jdbc:mysql://user:pass@host/db"', "size_kb": 1}]
+        result = scanner.scan("https://github.com/test/repo", files)
+        assert result["score"] is not None
+
+    def test_ruby_file_is_analyzed(self, scanner):
+        """Archivos .rb son analizados."""
+        files = [{"path": "config/database.rb", "content": "password = 'hunter2'", "size_kb": 1}]
+        result = scanner.scan("https://github.com/test/repo", files)
+        assert result["score"] is not None
+
+    def test_go_file_is_analyzed(self, scanner):
+        """Archivos .go son analizados."""
+        files = [{"path": "main.go", "content": 'apiKey := "abcdefghijklmnopqrstuvwxyz1234"', "size_kb": 1}]
+        result = scanner.scan("https://github.com/test/repo", files)
+        assert result["score"] is not None
+
+    def test_tfvars_file_is_analyzed(self, scanner):
+        """Archivos .tfvars son analizados (variables Terraform con secrets)."""
+        files = [{"path": "terraform.tfvars", "content": 'db_password = "s3cur3P4ss!"', "size_kb": 1}]
+        result = scanner.scan("https://github.com/test/repo", files)
+        assert result["score"] is not None
+        assert len(result["findings"]["secrets"]) >= 1
+
+    def test_xml_file_is_analyzed(self, scanner):
+        """Archivos .xml son analizados (Maven settings, Spring configs)."""
+        files = [{"path": "settings.xml", "content": "<password>mysecret123</password>", "size_kb": 1}]
+        result = scanner.scan("https://github.com/test/repo", files)
+        assert result["score"] is not None
+
+    def test_env_local_file_is_analyzed(self, scanner):
+        """Archivos .env.local son analizados."""
+        files = [{"path": "frontend/.env.local", "content": "NEXT_PUBLIC_API_KEY=abcdefghijklmnopqrstu", "size_kb": 1}]
+        result = scanner.scan("https://github.com/test/repo", files)
+        assert result["score"] is not None
+
+    def test_png_still_skipped(self, scanner):
+        """Archivos binarios (.png) siguen siendo omitidos."""
+        files = [{"path": "logo.png", "content": "binary", "size_kb": 5}]
+        result = scanner.scan("https://github.com/test/repo", files)
+        assert result["score"] is None
+        assert len(result["skipped_files"]) == 1
+
+    def test_woff_still_skipped(self, scanner):
+        """Archivos de fuentes (.woff) siguen siendo omitidos."""
+        files = [{"path": "font.woff", "content": "binary", "size_kb": 50}]
+        result = scanner.scan("https://github.com/test/repo", files)
+        assert result["score"] is None
+
+
+class TestSpecialFilenames:
+    """Tests de archivos sin extensión detectados por nombre (SPECIAL_FILENAMES)."""
+
+    def test_dockerfile_is_analyzed(self, scanner):
+        """Dockerfile (sin extensión) es analizado."""
+        files = [{"path": "Dockerfile", "content": "ENV API_KEY=abcdefghijklmnopqrstuvwx", "size_kb": 1}]
+        result = scanner.scan("https://github.com/test/repo", files)
+        assert result["score"] is not None
+
+    def test_makefile_is_analyzed(self, scanner):
+        """Makefile es analizado."""
+        files = [{"path": "Makefile", "content": "CIRCLE_TOKEN=abc123def456ghi789jkl", "size_kb": 1}]
+        result = scanner.scan("https://github.com/test/repo", files)
+        assert result["score"] is not None
+        assert len(result["findings"]["secrets"]) >= 1
+
+    def test_jenkinsfile_is_analyzed(self, scanner):
+        """Jenkinsfile es analizado."""
+        files = [{"path": "Jenkinsfile", "content": "password = 'jenkins_secret_123'", "size_kb": 1}]
+        result = scanner.scan("https://github.com/test/repo", files)
+        assert result["score"] is not None
+
+    def test_npmrc_file_is_analyzed(self, scanner):
+        """.npmrc es analizado (puede estar en SPECIAL_FILENAMES o extensión)."""
+        files = [{"path": ".npmrc", "content": "//registry.npmjs.org/:_authToken=npm_ABCDEFGHIJKLMNOPQRST1234", "size_kb": 1}]
+        result = scanner.scan("https://github.com/test/repo", files)
+        assert result["score"] is not None
+        assert len(result["findings"]["secrets"]) >= 1
+
+    def test_nested_dockerfile_is_analyzed(self, scanner):
+        """Dockerfile en subdirectorio también es reconocido."""
+        files = [{"path": "docker/Dockerfile", "content": "ENV DB_PASS=mysecret123", "size_kb": 1}]
+        result = scanner.scan("https://github.com/test/repo", files)
+        assert result["score"] is not None
+
+
+class TestGetBasenameAndExtension:
+    """Tests del helper _get_basename y _get_extension."""
+
+    def test_get_basename_unix_path(self, scanner):
+        assert scanner._get_basename("src/api/config.py") == "config.py"
+
+    def test_get_basename_root_file(self, scanner):
+        assert scanner._get_basename("Dockerfile") == "Dockerfile"
+
+    def test_get_basename_dotfile(self, scanner):
+        assert scanner._get_basename(".env") == ".env"
+
+    def test_get_extension_simple(self, scanner):
+        assert scanner._get_extension("config.py") == ".py"
+
+    def test_get_extension_compound_env_local(self, scanner):
+        assert scanner._get_extension("frontend/.env.local") == ".env.local"
+
+    def test_get_extension_compound_env_production(self, scanner):
+        assert scanner._get_extension(".env.production") == ".env.production"
+
+    def test_get_extension_no_extension(self, scanner):
+        assert scanner._get_extension("Dockerfile") == ""
+
+    def test_get_extension_dotfile(self, scanner):
+        assert scanner._get_extension(".npmrc") == ".npmrc"

@@ -6,6 +6,7 @@ Omite archivos > 256 KB y formatos no soportados [EDGE-2].
 Attributes:
     MAX_FILE_SIZE_KB: Tamaño máximo de archivo para análisis (256 KB).
     SUPPORTED_EXTENSIONS: Extensiones de archivo soportadas.
+    SPECIAL_FILENAMES: Nombres de archivo sin extensión que se analizan.
 """
 
 from typing import Any
@@ -16,11 +17,60 @@ from src.auditor.compliance import GovernanceChecker
 from src.auditor.report import ScoreCalculator
 
 MAX_FILE_SIZE_KB = 256
-SUPPORTED_EXTENSIONS = {
-    '.py', '.yaml', '.yml', '.json', '.tf',
+
+# Extensiones organizadas por categoría para facilitar mantenimiento.
+SUPPORTED_EXTENSIONS: frozenset[str] = frozenset({
+    # --- Infraestructura y configuración original ---
+    '.yaml', '.yml', '.json', '.tf', '.tfvars',
     '.template', '.cfg', '.toml', '.env',
     '.pem', '.key', '.sh',
-}
+
+    # --- Backend: lenguajes de servidor ---
+    '.py',                              # Python
+    '.js', '.mjs', '.cjs',             # JavaScript
+    '.ts',                              # TypeScript
+    '.jsx', '.tsx',                     # React
+    '.java',                            # Java
+    '.rb',                              # Ruby
+    '.go',                              # Go
+    '.php',                             # PHP
+    '.cs',                              # C#
+    '.rs',                              # Rust
+    '.swift',                           # Swift (iOS/macOS)
+    '.kt', '.kts',                      # Kotlin (Android / Gradle)
+    '.scala',                           # Scala
+
+    # --- Config de aplicaciones y entornos ---
+    '.ini', '.conf', '.properties',     # Configs legacy
+    '.config',                          # .NET / generic config
+    '.xml',                             # Maven, Spring, Android
+    '.gradle',                          # Gradle build scripts
+    '.hcl',                             # Terraform HCL alternativo
+
+    # --- CI/CD y DevOps ---
+    '.npmrc',                           # Tokens de registro NPM
+    '.dockerfile',                      # Dockerfile con extensión explícita
+    '.env.local', '.env.development',   # Variantes dotenv subidas por error
+    '.env.production', '.env.test',
+    '.env.staging',
+})
+
+# Archivos sin extensión que contienen configuración o secretos con frecuencia.
+# Se compara contra el nombre de archivo (basename), no la extensión.
+SPECIAL_FILENAMES: frozenset[str] = frozenset({
+    'Dockerfile',       # ARG/ENV con tokens
+    'Makefile',         # Targets con credenciales hardcoded
+    'Jenkinsfile',      # Pipeline CI con tokens
+    'Podfile',          # iOS dependencies con tokens de repo privado
+    'Gemfile',          # Ruby gems con source privado autenticado
+    'Procfile',         # Heroku: puede exponer URIs con credenciales
+    '.env',             # Dotenv sin extensión (raíz del repo)
+    '.npmrc',           # NPM auth token (también como nombre sin extensión)
+    '.gitconfig',       # Credenciales git embebidas
+    '.htpasswd',        # Contraseñas Apache
+    '.netrc',           # Credenciales FTP/HTTP
+    'wp-config.php',    # WordPress DB credentials (nombre específico)
+})
 
 
 class AuditScanner:
@@ -101,7 +151,10 @@ class AuditScanner:
     def _filter_files(
         self, files: list[dict]
     ) -> tuple[list[dict], list[dict]]:
-        """Filtra archivos por tamaño y extensión.
+        """Filtra archivos por tamaño y extensión/nombre.
+
+        Acepta archivos cuya extensión esté en SUPPORTED_EXTENSIONS
+        o cuyo nombre (basename) esté en SPECIAL_FILENAMES.
 
         Args:
             files: Lista completa de archivos.
@@ -116,6 +169,7 @@ class AuditScanner:
             path = f.get('path', '')
             size_kb = f.get('size_kb', 0)
             ext = self._get_extension(path)
+            basename = self._get_basename(path)
 
             if size_kb > MAX_FILE_SIZE_KB:
                 skipped.append({
@@ -123,19 +177,35 @@ class AuditScanner:
                     "size_kb": size_kb,
                     "reason": f"exceeds_{MAX_FILE_SIZE_KB}kb_limit",
                 })
-            elif ext not in SUPPORTED_EXTENSIONS:
+            elif ext in SUPPORTED_EXTENSIONS or basename in SPECIAL_FILENAMES:
+                analyzable.append(f)
+            else:
                 skipped.append({
                     "path": path,
                     "size_kb": size_kb,
                     "reason": f"unsupported_extension: {ext}",
                 })
-            else:
-                analyzable.append(f)
 
         return analyzable, skipped
 
+    def _get_basename(self, path: str) -> str:
+        """Extrae el nombre de archivo (sin directorio) de un path."""
+        # Soporta tanto '/' como '\\' como separadores
+        return path.replace('\\', '/').rsplit('/', 1)[-1]
+
     def _get_extension(self, path: str) -> str:
-        """Extrae la extensión de un path de archivo."""
-        if '.' in path:
-            return '.' + path.rsplit('.', 1)[-1].lower()
+        """Extrae la extensión de un path de archivo.
+
+        Soporta extensiones compuestas tipo '.env.local'.
+        Retorna '' si el archivo no tiene extensión.
+        """
+        basename = self._get_basename(path)
+        # Extensión compuesta: .env.local, .env.production, etc.
+        if basename.count('.') >= 2:
+            parts = basename.split('.', 1)
+            compound = '.' + parts[1]  # e.g. '.env.local'
+            if compound in SUPPORTED_EXTENSIONS:
+                return compound
+        if '.' in basename:
+            return '.' + basename.rsplit('.', 1)[-1].lower()
         return ''
