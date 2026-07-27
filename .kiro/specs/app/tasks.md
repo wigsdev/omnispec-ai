@@ -198,55 +198,6 @@
 
 ---
 
-## Orden de Ejecución y Dependencias
-
-```mermaid
-graph LR
-    T1[Tarea 1<br/>Frontend UI] --> T2[Tarea 2<br/>Flask + Gemini]
-    T2 --> T3[Tarea 3<br/>Auditor GitHub]
-    T3 --> T4[Tarea 4<br/>Auto-Fix + PR]
-    T2 --> T5[Tarea 5<br/>AWS CDK Infra]
-    T4 --> T5
-```
-
-| Tarea | Depende de | Bloquea a |
-|-------|-----------|-----------|
-| Tarea 1 | — (independiente) | Tarea 2 (API consume UI) |
-| Tarea 2 | Tarea 1 (endpoints para UI) | Tarea 3, Tarea 5 |
-| Tarea 3 | Tarea 2 (Gemini client reutilizado) | Tarea 4 |
-| Tarea 4 | Tarea 3 (findings como input) | Tarea 5 |
-| Tarea 5 | Tarea 2, Tarea 4 (código completo para deploy) | — |
-
----
-
-## Resumen de Trazabilidad
-
-| Tarea | Requisitos EARS | Criterios AC | Edge Cases | Módulo |
-|-------|----------------|-------------|------------|--------|
-| Tarea 1 | REQ-1.1, REQ-2.1, REQ-2.5, REQ-3.1, REQ-3.3 | AC-1.3.1, AC-2.1.1, AC-2.5.3, AC-3.1.3, AC-3.3.1 | — | frontend/ |
-| Tarea 2 | REQ-1.1 → REQ-1.6 | AC-1.1.1 → AC-1.6.3, AC-AMB-1.x, AC-GAP-1.x, AC-EDGE-1.x | AMB-1, GAP-1, EDGE-1 | src/sdd_generator/, src/api/ |
-| Tarea 3 | REQ-2.1 → REQ-2.6 | AC-2.1.1 → AC-2.6.3, AC-GAP-2.x, AC-EDGE-2.x | GAP-1, GAP-2, EDGE-2 | src/auditor/ |
-| Tarea 4 | REQ-3.1 → REQ-3.5 | AC-3.1.1 → AC-3.5.3, AC-GAP-2.x, AC-EDGE-1.x | GAP-1, GAP-2, EDGE-1 | src/pr_engine/ |
-| Tarea 5 | REQ-1.1 (cache), REQ-2.1 (log) | AC-1.1.3, AC-2.1.3 | GAP-1 (infra cache) | infra/ |
-
----
-
-## Resumen de Tests de Edge Cases
-
-| ID | Test File | Test Functions | Tarea |
-|----|-----------|---------------|-------|
-| AMB-1 | `tests/sdd_generator/test_generator_edge_cases.py` | `test_vague_prompt_under_5_words_generates_sdd`, `test_prompt_expansion_adds_amb_section` | T2 |
-| GAP-1 | `tests/sdd_generator/test_fallback.py` | `test_missing_api_key_activates_smart_engine`, `test_rate_limit_429_uses_dynamo_cache`, `test_rate_limit_429_cache_miss_uses_smart_engine` | T2 |
-| GAP-1 | `tests/auditor/test_scanner.py` | `test_gemini_429_during_explanation_uses_generic_text` | T3 |
-| GAP-1 | `tests/pr_engine/test_fixer.py` | `test_gemini_429_during_fix_generation` | T4 |
-| GAP-2 | `tests/auditor/test_permission_denied.py` | `test_read_permission_denied_aborts_audit`, `test_denied_returns_200_with_cancelled_status`, `test_denied_logs_audit_event` | T3 |
-| GAP-2 | `tests/pr_engine/test_permission_denied.py` | `test_write_permission_denied_blocks_pr_creation`, `test_denied_enables_local_download`, `test_denied_logs_write_permission_event` | T4 |
-| EDGE-1 | `tests/api/test_streaming_timeout.py` | `test_sse_sends_chunks_every_5s`, `test_timeout_warning_at_25s` | T2 |
-| EDGE-1 | `tests/pr_engine/test_fixer.py` | `test_fix_generation_timeout_returns_partial` | T4 |
-| EDGE-2 | `tests/auditor/test_empty_repo.py` | `test_empty_repo_returns_score_na`, `test_file_over_256kb_is_skipped`, `test_unsupported_formats_only_returns_extensions_list` | T3 |
-
----
-
 ## Tarea 6: Deuda Técnica — Migración de WSGI Adapter: serverless-wsgi → Mangum
 
 **Scope**: Migración del adapter Lambda de serverless-wsgi a Mangum para mejor soporte de Flask moderno, SSE Streaming y ASGI.
@@ -318,3 +269,111 @@ graph LR
 - Cada merge a `main` despliega automáticamente a producción
 - El deploy incluye: Lambda + frontend S3 + invalidación CloudFront
 - Secrets de AWS NO están en el código (solo en GitHub Secrets)
+
+---
+
+## Tarea 8: OAuth Store — Migración de dict en memoria a DynamoDB + postMessage
+
+**Scope**: Reemplazar el `_auth_store` dict en memoria por DynamoDB como backend persistente compartido entre instancias Lambda. Agregar postMessage como canal primario entre popup y parent. Frontend usa localStorage para persistencia del token.
+
+**Justificación**: En Lambda, cada request puede ir a una instancia diferente. El callback escribe en la instancia A, el poll llega a la instancia B → `expired`. DynamoDB como store compartido elimina la race condition. postMessage elimina la dependencia del polling como único canal.
+
+**Bug resuelto**: Al desconectar y reconectar GitHub, el popup completa correctamente pero la página principal muestra "Sesión expirada" porque el poll consulta otra instancia Lambda sin la entry.
+
+### Subtareas
+
+- [x] 8.1 Crear módulo `src/api/auth_store.py` — clase `AuthStore` con DynamoDB como backend:
+  - Tabla: `omnispec-cache` (pk: `AUTH#{request_id}`, sk: `session`)
+  - TTL: 5 minutos (expiración automática DynamoDB)
+  - Métodos: `create_session`, `complete_session`, `set_error`, `get_session`, `exists`
+  - Fallback: dict en memoria cuando `DYNAMODB_CACHE_TABLE` no está seteado (dev local)
+
+- [x] 8.2 Refactorizar `src/api/routes/auth.py`:
+  - Reemplazar `_auth_store` dict por import de `auth_store` singleton
+  - `auth_start`: usa `auth_store.create_session(request_id)`
+  - `github_callback`: usa `auth_store.complete_session(request_id, token, user_info)` y `auth_store.set_error(request_id, error)`
+  - `auth_poll`: usa `auth_store.get_session(request_id)`, retorna token en JSON, no elimina la entry (DynamoDB TTL se encarga)
+  - `auth_status`: acepta header `Authorization: Bearer <token>` como fuente primaria
+  - `get_user_github_token()`: lee header Authorization primero, sesión Flask como fallback
+  - `logout`: usa `session.clear()` + invalida cookie
+
+- [x] 8.3 Actualizar `_close_page()` para enviar `window.opener.postMessage()` al parent con token + user antes de auto-cerrarse
+
+- [x] 8.4 Refactorizar `frontend/js/app.js`:
+  - `openGitHubAuthPopup()`: postMessage como canal primario + polling como fallback
+  - `apiFetch()`: inyecta `Authorization: Bearer <token>` desde localStorage
+  - `checkGitHubAuth()`: lee localStorage primero, valida contra backend
+  - `handleLogout()`: limpia localStorage antes de llamar al backend
+  - `showGitHubUser()`/`showGitHubLogin()`: sin cambios funcionales
+
+- [x] 8.5 Ejecutar pytest y verificar que los 246 tests siguen pasando
+
+- [x] 8.6 Commit atómico con todos los cambios
+
+**Criterios de completitud (DoD)**:
+- Login → logout → re-login funciona sin "Sesión expirada" (el bug original)
+- Funciona en Lambda multi-instancia (callback y poll pueden ir a instancias diferentes)
+- Funciona en dev local sin DynamoDB (fallback a dict en memoria)
+- postMessage entrega resultado al parent instantáneamente (sin esperar polling)
+- Polling sigue funcionando como fallback (por si postMessage falla en cross-origin)
+- localStorage persiste sesión entre recargas de página
+- Logout limpia localStorage + cookie de sesión + backend
+- 246 tests pasan sin modificación
+
+---
+
+## Orden de Ejecución y Dependencias
+
+```mermaid
+graph LR
+    T1[Tarea 1<br/>Frontend UI] --> T2[Tarea 2<br/>Flask + Gemini]
+    T2 --> T3[Tarea 3<br/>Auditor GitHub]
+    T3 --> T4[Tarea 4<br/>Auto-Fix + PR]
+    T2 --> T5[Tarea 5<br/>AWS CDK Infra]
+    T4 --> T5
+    T5 --> T6[Tarea 6<br/>Mangum]
+    T6 --> T7[Tarea 7<br/>CI/CD]
+    T7 --> T8[Tarea 8<br/>OAuth DynamoDB]
+```
+
+| Tarea | Depende de | Bloquea a |
+|-------|-----------|-----------|
+| Tarea 1 | — (independiente) | Tarea 2 (API consume UI) |
+| Tarea 2 | Tarea 1 (endpoints para UI) | Tarea 3, Tarea 5 |
+| Tarea 3 | Tarea 2 (Gemini client reutilizado) | Tarea 4 |
+| Tarea 4 | Tarea 3 (findings como input) | Tarea 5 |
+| Tarea 5 | Tarea 2, Tarea 4 (código completo para deploy) | Tarea 6 |
+| Tarea 6 | Tarea 5 (Lambda desplegada) | Tarea 7 |
+| Tarea 7 | Tarea 6 (adapter estable) | Tarea 8 |
+| Tarea 8 | Tarea 7 (CI/CD + DynamoDB en prod) | — |
+
+---
+
+## Resumen de Trazabilidad
+
+| Tarea | Requisitos EARS | Criterios AC | Edge Cases | Módulo |
+|-------|----------------|-------------|------------|--------|
+| Tarea 1 | REQ-1.1, REQ-2.1, REQ-2.5, REQ-3.1, REQ-3.3 | AC-1.3.1, AC-2.1.1, AC-2.5.3, AC-3.1.3, AC-3.3.1 | — | frontend/ |
+| Tarea 2 | REQ-1.1 → REQ-1.6 | AC-1.1.1 → AC-1.6.3, AC-AMB-1.x, AC-GAP-1.x, AC-EDGE-1.x | AMB-1, GAP-1, EDGE-1 | src/sdd_generator/, src/api/ |
+| Tarea 3 | REQ-2.1 → REQ-2.6 | AC-2.1.1 → AC-2.6.3, AC-GAP-2.x, AC-EDGE-2.x | GAP-1, GAP-2, EDGE-2 | src/auditor/ |
+| Tarea 4 | REQ-3.1 → REQ-3.5 | AC-3.1.1 → AC-3.5.3, AC-GAP-2.x, AC-EDGE-1.x | GAP-1, GAP-2, EDGE-1 | src/pr_engine/ |
+| Tarea 5 | REQ-1.1 (cache), REQ-2.1 (log) | AC-1.1.3, AC-2.1.3 | GAP-1 (infra cache) | infra/ |
+| Tarea 6 | — (deuda técnica) | — | — | src/api/ |
+| Tarea 7 | — (DevOps) | — | — | .github/workflows/ |
+| Tarea 8 | — (bug fix arquitectónico) | — | Race condition Lambda | src/api/, frontend/ |
+
+---
+
+## Resumen de Tests de Edge Cases
+
+| ID | Test File | Test Functions | Tarea |
+|----|-----------|---------------|-------|
+| AMB-1 | `tests/sdd_generator/test_generator_edge_cases.py` | `test_vague_prompt_under_5_words_generates_sdd`, `test_prompt_expansion_adds_amb_section` | T2 |
+| GAP-1 | `tests/sdd_generator/test_fallback.py` | `test_missing_api_key_activates_smart_engine`, `test_rate_limit_429_uses_dynamo_cache`, `test_rate_limit_429_cache_miss_uses_smart_engine` | T2 |
+| GAP-1 | `tests/auditor/test_scanner.py` | `test_gemini_429_during_explanation_uses_generic_text` | T3 |
+| GAP-1 | `tests/pr_engine/test_fixer.py` | `test_gemini_429_during_fix_generation` | T4 |
+| GAP-2 | `tests/auditor/test_permission_denied.py` | `test_read_permission_denied_aborts_audit`, `test_denied_returns_200_with_cancelled_status`, `test_denied_logs_audit_event` | T3 |
+| GAP-2 | `tests/pr_engine/test_permission_denied.py` | `test_write_permission_denied_blocks_pr_creation`, `test_denied_enables_local_download`, `test_denied_logs_write_permission_event` | T4 |
+| EDGE-1 | `tests/api/test_streaming_timeout.py` | `test_sse_sends_chunks_every_5s`, `test_timeout_warning_at_25s` | T2 |
+| EDGE-1 | `tests/pr_engine/test_fixer.py` | `test_fix_generation_timeout_returns_partial` | T4 |
+| EDGE-2 | `tests/auditor/test_empty_repo.py` | `test_empty_repo_returns_score_na`, `test_file_over_256kb_is_skipped`, `test_unsupported_formats_only_returns_extensions_list` | T3 |

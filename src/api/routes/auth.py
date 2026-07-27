@@ -1,23 +1,27 @@
-"""Auth Routes — GitHub OAuth via Popup + Server-Side Token Store.
+"""Auth Routes — GitHub OAuth via Popup + DynamoDB Store + postMessage.
 
 Flujo:
-1. Parent: POST /auth/start → recibe {request_id}
+1. Parent: POST /auth/start → DynamoDB: {request_id, status: "pending"}
 2. Parent: abre popup /auth/login?request_id=XXX
 3. Popup: redirect a GitHub → usuario autoriza
-4. Popup: callback guarda token en _auth_store[request_id]
-5. Popup: muestra "Listo, cierra esta ventana"
-6. Parent: GET /auth/poll/XXX → detecta token → lo mueve a su sesión
-7. Parent: actualiza UI con avatar
+4. Popup: callback → DynamoDB: update {status: "completed", token, user}
+5. Popup: postMessage al parent con token + user (canal rápido)
+6. Popup: se auto-cierra
+7. Parent: recibe postMessage → guarda en localStorage → UI actualizada
+8. Parent (fallback): poll → lee de DynamoDB → mismo resultado
 
-No depende de cookies compartidas entre popup y parent.
+No depende de cookies ni de dict en memoria. DynamoDB es compartido
+entre todas las instancias Lambda.
 """
 
+import json
 import os
-import time
 import secrets
 
 import requests
 from flask import Blueprint, jsonify, make_response, redirect, request, session
+
+from src.api.auth_store import auth_store
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -26,18 +30,12 @@ GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
 GITHUB_USER_URL = "https://api.github.com/user"
 OAUTH_SCOPES = "repo,read:user"
 
-# Server-side store: {request_id: {token, user, created_at}}
-# Ephemeral: entries expire after 5 minutes
-_auth_store: dict = {}
-AUTH_STORE_TTL = 300  # 5 minutes
-
 
 @auth_bp.route('/api/v1/auth/start', methods=['POST'])
 def auth_start():
-    """Genera un request_id para iniciar el flujo OAuth."""
+    """Genera un request_id y crea sesión pendiente en DynamoDB."""
     request_id = secrets.token_urlsafe(24)
-    _auth_store[request_id] = {"status": "pending", "created_at": time.time()}
-    _cleanup_expired()
+    auth_store.create_session(request_id)
     return jsonify({"request_id": request_id})
 
 
@@ -51,7 +49,6 @@ def github_login():
     request_id = request.args.get('request_id', '')
     callback_url = os.environ.get("APP_BASE_URL", "http://localhost:5000")
 
-    # Usar request_id como state (CSRF protection + correlation)
     params = (
         f"?client_id={client_id}"
         f"&scope={OAUTH_SCOPES}"
@@ -63,18 +60,18 @@ def github_login():
 
 @auth_bp.route('/api/v1/auth/callback', methods=['GET'])
 def github_callback():
-    """Callback de GitHub. Guarda token en _auth_store[request_id]."""
+    """Callback de GitHub. Guarda token en DynamoDB via auth_store."""
     code = request.args.get('code')
     request_id = request.args.get('state', '')
     error = request.args.get('error')
 
     if error or not code:
-        if request_id and request_id in _auth_store:
-            _auth_store[request_id] = {"status": "error", "error": error or "no_code"}
+        if request_id and auth_store.exists(request_id):
+            auth_store.set_error(request_id, error or "no_code")
         return _close_page(success=False, error=error or "no_code")
 
     # Verificar que request_id existe en store
-    if request_id not in _auth_store:
+    if not auth_store.exists(request_id):
         return _close_page(success=False, error="request_id_expired")
 
     # Intercambiar code por token
@@ -88,13 +85,13 @@ def github_callback():
     }, headers={"Accept": "application/json"}, timeout=10)
 
     if resp.status_code != 200:
-        _auth_store[request_id] = {"status": "error", "error": "token_exchange_failed"}
+        auth_store.set_error(request_id, "token_exchange_failed")
         return _close_page(success=False, error="token_exchange_failed")
 
     access_token = resp.json().get("access_token")
     if not access_token:
         err = resp.json().get("error_description", "no_token")
-        _auth_store[request_id] = {"status": "error", "error": err}
+        auth_store.set_error(request_id, err)
         return _close_page(success=False, error=err)
 
     # Obtener info del usuario
@@ -110,42 +107,43 @@ def github_callback():
         "name": user_data.get("name", ""),
     }
 
-    # Guardar en auth_store (NO en sesión — la sesión es del popup)
-    _auth_store[request_id] = {
-        "status": "completed",
-        "token": access_token,
-        "user": user_info,
-        "created_at": time.time(),
-    }
+    # Guardar en DynamoDB (compartido entre instancias Lambda)
+    auth_store.complete_session(request_id, access_token, user_info)
 
-    return _close_page(success=True, user=user_info["login"])
+    return _close_page(
+        success=True, user=user_info["login"],
+        token=access_token, user_info=user_info
+    )
 
 
 @auth_bp.route('/api/v1/auth/poll/<request_id>', methods=['GET'])
 def auth_poll(request_id: str):
-    """Polleado por la ventana principal. Cuando completa, mueve token a sesión."""
-    entry = _auth_store.get(request_id)
+    """Polleado por la ventana principal. Lee de DynamoDB (compartido).
+
+    No elimina la entry — DynamoDB TTL se encarga de la limpieza.
+    Esto permite reintentos sin race conditions.
+    """
+    entry = auth_store.get_session(request_id)
 
     if not entry:
         return jsonify({"status": "expired"})
 
-    if entry.get("status") == "pending":
+    status = entry.get("status", "unknown")
+
+    if status == "pending":
         return jsonify({"status": "pending"})
 
-    if entry.get("status") == "error":
-        # Limpiar store
-        _auth_store.pop(request_id, None)
+    if status == "error":
         return jsonify({"status": "error", "error": entry.get("error")})
 
-    if entry.get("status") == "completed":
-        # Mover token a la sesión de ESTA request (ventana principal)
+    if status == "completed":
+        # Guardar en sesión Flask como backup
         session['github_token'] = entry["token"]
         session['github_user'] = entry["user"]
-        # Limpiar store (one-time use)
-        _auth_store.pop(request_id, None)
         return jsonify({
             "status": "authenticated",
             "user": entry["user"],
+            "token": entry["token"],
         })
 
     return jsonify({"status": "unknown"})
@@ -153,7 +151,25 @@ def auth_poll(request_id: str):
 
 @auth_bp.route('/api/v1/auth/status', methods=['GET'])
 def auth_status():
-    """Retorna estado de autenticación de la sesión actual."""
+    """Retorna estado de autenticación.
+
+    Fuentes (en orden de prioridad):
+    1. Header Authorization: Bearer <token> (localStorage del frontend)
+    2. Flask session cookie (backup)
+    """
+    # Fuente primaria: header Authorization
+    token = _extract_bearer_token()
+    if token:
+        user = _validate_github_token(token)
+        if user:
+            session['github_token'] = token
+            session['github_user'] = user
+            return jsonify({"authenticated": True, "user": user})
+        # Token inválido/revocado
+        session.clear()
+        return jsonify({"authenticated": False, "user": None})
+
+    # Fallback: sesión Flask
     token = session.get('github_token')
     user = session.get('github_user')
     if token and user:
@@ -163,29 +179,74 @@ def auth_status():
 
 @auth_bp.route('/api/v1/auth/logout', methods=['POST'])
 def logout():
-    """Cierra sesión."""
-    session.pop('github_token', None)
-    session.pop('github_user', None)
-    return jsonify({"status": "ok"})
+    """Cierra sesión completamente.
+
+    Usa session.clear() + invalida cookie para evitar sesiones zombie.
+    """
+    session.clear()
+    response = make_response(jsonify({"status": "ok"}))
+    response.set_cookie('session', '', expires=0, httponly=True, samesite='Lax')
+    return response
 
 
 def get_user_github_token() -> str | None:
-    """Obtiene el token del usuario autenticado."""
+    """Obtiene el token del usuario autenticado.
+
+    Fuentes (en orden de prioridad):
+    1. Header Authorization: Bearer <token> (enviado desde localStorage)
+    2. Flask session cookie (backup)
+    """
+    token = _extract_bearer_token()
+    if token:
+        return token
     return session.get('github_token')
 
 
-def _cleanup_expired():
-    """Elimina entries expirados del auth_store."""
-    now = time.time()
-    expired = [k for k, v in _auth_store.items()
-               if now - v.get("created_at", 0) > AUTH_STORE_TTL]
-    for k in expired:
-        del _auth_store[k]
+def _extract_bearer_token() -> str | None:
+    """Extrae token del header Authorization: Bearer <token>."""
+    auth_header = request.headers.get('Authorization', '')
+    if auth_header.startswith('Bearer ') and len(auth_header) > 7:
+        return auth_header[7:]
+    return None
 
 
-def _close_page(success: bool, error: str = "", user: str = "") -> str:
-    """HTML que muestra resultado y se auto-cierra."""
+def _validate_github_token(token: str) -> dict | None:
+    """Valida un token contra la API de GitHub.
+
+    Args:
+        token: GitHub access token.
+
+    Returns:
+        Dict con user info si válido, None si expiró/revocado.
+    """
+    try:
+        resp = requests.get(GITHUB_USER_URL, headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github.v3+json",
+        }, timeout=5)
+        if resp.status_code == 200:
+            data = resp.json()
+            return {
+                "login": data.get("login", "unknown"),
+                "avatar_url": data.get("avatar_url", ""),
+                "name": data.get("name", ""),
+            }
+    except requests.RequestException:
+        pass
+    return None
+
+
+def _close_page(
+    success: bool, error: str = "", user: str = "",
+    token: str = "", user_info: dict | None = None
+) -> str:
+    """HTML que envía postMessage al parent y se auto-cierra.
+
+    Usa window.opener.postMessage para comunicar el resultado
+    directamente al frontend (canal primario, instantáneo).
+    """
     if success:
+        user_json = json.dumps(user_info) if user_info else "{}"
         html = f"""<!DOCTYPE html>
 <html><head><title>OmniSpec AI</title>
 <style>body{{background:#0d1117;color:#00ff88;font-family:monospace;
@@ -194,7 +255,16 @@ display:flex;align-items:center;justify-content:center;height:100vh;margin:0}}
 <body><div class="box">
 <h2>Conectado como {user}</h2>
 <p>Puedes cerrar esta ventana.</p>
-<script>setTimeout(function(){{window.close()}},2000)</script>
+<script>
+if (window.opener) {{
+    window.opener.postMessage({{
+        type: 'omnispec-auth-success',
+        token: '{token}',
+        user: {user_json}
+    }}, '*');
+}}
+setTimeout(function(){{window.close()}}, 1500);
+</script>
 </div></body></html>"""
     else:
         html = f"""<!DOCTYPE html>
@@ -206,6 +276,14 @@ display:flex;align-items:center;justify-content:center;height:100vh;margin:0}}
 <h2>Error de autenticación</h2>
 <p>{error}</p>
 <p>Cierra esta ventana e intenta de nuevo.</p>
+<script>
+if (window.opener) {{
+    window.opener.postMessage({{
+        type: 'omnispec-auth-error',
+        error: '{error}'
+    }}, '*');
+}}
+</script>
 </div></body></html>"""
 
     response = make_response(html)

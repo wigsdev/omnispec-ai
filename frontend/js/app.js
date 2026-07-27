@@ -644,8 +644,16 @@ const App = (() => {
      */
     async function apiFetch(endpoint, options = {}) {
         const url = `${API_BASE}${endpoint}`;
+        const headers = { 'Content-Type': 'application/json' };
+
+        // Inyectar token de localStorage en header Authorization
+        const token = localStorage.getItem('omnispec_github_token');
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+
         const config = {
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             ...options
         };
 
@@ -898,8 +906,27 @@ const App = (() => {
 
     /**
      * Verifica estado de autenticación de GitHub al iniciar.
+     * Lee de localStorage primero, luego valida contra backend.
      */
     async function checkGitHubAuth() {
+        const storedToken = localStorage.getItem('omnispec_github_token');
+        const storedUser = localStorage.getItem('omnispec_github_user');
+
+        if (storedToken && storedUser) {
+            try {
+                const user = JSON.parse(storedUser);
+                const data = await apiFetch('/auth/status');
+                if (data.authenticated && data.user) {
+                    showGitHubUser(data.user);
+                    localStorage.setItem('omnispec_github_user', JSON.stringify(data.user));
+                    return;
+                }
+            } catch { /* token expirado o revocado */ }
+            // Token inválido — limpiar
+            localStorage.removeItem('omnispec_github_token');
+            localStorage.removeItem('omnispec_github_user');
+        }
+
         try {
             const data = await apiFetch('/auth/status');
             if (data.authenticated && data.user) {
@@ -913,12 +940,12 @@ const App = (() => {
     }
 
     /**
-     * Abre popup de OAuth y pollea /auth/poll/{id} hasta que complete.
+     * Abre popup de OAuth. Recibe resultado via postMessage (primario)
+     * con polling DynamoDB como fallback.
      * @returns {Promise<boolean>} true si autenticado exitosamente.
      */
     function openGitHubAuthPopup() {
         return new Promise(async (resolve) => {
-            // 1. Pedir request_id al servidor
             let requestId;
             try {
                 const startResp = await apiFetch('/auth/start', { method: 'POST' });
@@ -929,7 +956,47 @@ const App = (() => {
                 return;
             }
 
-            // 2. Abrir popup con request_id
+            let resolved = false;
+
+            function handleSuccess(token, user) {
+                if (resolved) return;
+                resolved = true;
+                if (token) localStorage.setItem('omnispec_github_token', token);
+                if (user) localStorage.setItem('omnispec_github_user', JSON.stringify(user));
+                showGitHubUser(user);
+                showAlert(`Conectado como ${user.login}`, 'success');
+                if (popup && !popup.closed) popup.close();
+                cleanup();
+                resolve(true);
+            }
+
+            function handleError(error) {
+                if (resolved) return;
+                resolved = true;
+                showAlert(`Error: ${error}`, 'error');
+                cleanup();
+                resolve(false);
+            }
+
+            let pollInterval = null;
+            function cleanup() {
+                window.removeEventListener('message', messageHandler);
+                if (pollInterval) clearInterval(pollInterval);
+            }
+
+            // Canal PRIMARIO: postMessage desde el popup
+            function messageHandler(event) {
+                const data = event.data;
+                if (!data || !data.type) return;
+                if (data.type === 'omnispec-auth-success') {
+                    handleSuccess(data.token, data.user);
+                } else if (data.type === 'omnispec-auth-error') {
+                    handleError(data.error || 'Error desconocido');
+                }
+            }
+            window.addEventListener('message', messageHandler);
+
+            // Abrir popup
             const width = 500, height = 600;
             const left = (screen.width - width) / 2;
             const top = (screen.height - height) / 2;
@@ -939,48 +1006,37 @@ const App = (() => {
                 `width=${width},height=${height},left=${left},top=${top}`
             );
 
-            // 3. Polling: preguntar al servidor si el auth completó
-            const poll = setInterval(async () => {
+            // Canal FALLBACK: polling DynamoDB
+            pollInterval = setInterval(async () => {
+                if (resolved) { clearInterval(pollInterval); return; }
                 try {
                     const resp = await fetch(`${API_BASE}/auth/poll/${requestId}`);
                     const data = await resp.json();
-
                     if (data.status === 'authenticated') {
-                        clearInterval(poll);
-                        showGitHubUser(data.user);
-                        showAlert(`Conectado como ${data.user.login}`, 'success');
-                        if (popup && !popup.closed) popup.close();
-                        resolve(true);
+                        handleSuccess(data.token, data.user);
                     } else if (data.status === 'error') {
-                        clearInterval(poll);
-                        showAlert(`Error: ${data.error}`, 'error');
-                        resolve(false);
-                    } else if (data.status === 'expired') {
-                        clearInterval(poll);
-                        showAlert('Sesión expirada. Intenta de nuevo.', 'warning');
-                        resolve(false);
+                        handleError(data.error);
+                    } else if (data.status === 'expired' && popup && popup.closed) {
+                        if (!resolved) {
+                            resolved = true;
+                            showAlert('Sesión expirada. Intenta de nuevo.', 'warning');
+                            cleanup();
+                            resolve(false);
+                        }
                     }
-                } catch { /* ignore network errors during polling */ }
+                } catch { /* ignore */ }
+            }, 2000);
 
-                // Si el popup se cerró sin completar
-                if (popup && popup.closed) {
-                    // Dar un último intento
-                    setTimeout(async () => {
-                        try {
-                            const resp = await fetch(`${API_BASE}/auth/poll/${requestId}`);
-                            const data = await resp.json();
-                            if (data.status === 'authenticated') {
-                                showGitHubUser(data.user);
-                                showAlert(`Conectado como ${data.user.login}`, 'success');
-                                resolve(true);
-                            } else {
-                                resolve(false);
-                            }
-                        } catch { resolve(false); }
-                    }, 1000);
-                    clearInterval(poll);
+            // Timeout de seguridad: 2 minutos
+            setTimeout(() => {
+                if (!resolved) {
+                    resolved = true;
+                    showAlert('Tiempo de autenticación agotado.', 'warning');
+                    cleanup();
+                    if (popup && !popup.closed) popup.close();
+                    resolve(false);
                 }
-            }, 1500);
+            }, 120000);
         });
     }
 
@@ -1005,15 +1061,16 @@ const App = (() => {
 
     /**
      * Handler: Logout de GitHub.
+     * Limpia localStorage + sesión del servidor + UI.
      */
     async function handleLogout() {
+        localStorage.removeItem('omnispec_github_token');
+        localStorage.removeItem('omnispec_github_user');
         try {
             await apiFetch('/auth/logout', { method: 'POST' });
-            showGitHubLogin();
-            showAlert('Sesión de GitHub cerrada.', 'info');
-        } catch {
-            showGitHubLogin();
-        }
+        } catch { /* backend puede fallar, frontend queda limpio */ }
+        showGitHubLogin();
+        showAlert('Sesión de GitHub cerrada.', 'info');
     }
 
     return { init, apiFetch, showAlert };
