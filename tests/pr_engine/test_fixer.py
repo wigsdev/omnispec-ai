@@ -98,3 +98,50 @@ class TestDiffGeneration:
         result = fixer.generate(findings)
         assert result["provider"] == "MockAI"
         assert "latency_ms" in result
+
+
+class TestSeverityFiltering:
+    """Tests del filtro de severidades accionables."""
+
+    def test_info_findings_only_returns_no_fix_needed(self, fixer):
+        """Findings con severidad 'info' (archivos de test) → no fix."""
+        findings = [
+            {"file": "tests/test_structural.py", "line": 22, "severity": "info",
+             "description": "AWS Access Key expuesta", "in_test_file": True},
+            {"file": "tests/test_scanner.py", "line": 52, "severity": "info",
+             "description": "Password hardcoded en código", "in_test_file": True},
+        ]
+        result = fixer.generate(findings)
+        assert result["status"] == "no_fix_needed"
+        assert result.get("skipped") == 2
+
+    def test_low_findings_only_returns_no_fix_needed(self, fixer):
+        """Findings con severidad 'low' (valores de ejemplo) → no fix automático."""
+        findings = [
+            {"file": "src/auditor/structural.py", "line": 61, "severity": "low",
+             "description": "AWS Access Key expuesta"},
+        ]
+        result = fixer.generate(findings)
+        assert result["status"] == "no_fix_needed"
+        assert result.get("skipped") == 1
+
+    def test_mixed_severities_only_processes_actionable(self, fixer):
+        """Mix de severidades: solo critical/high/medium se procesan."""
+        findings = [
+            {"file": "tests/test_structural.py", "line": 22, "severity": "info",
+             "description": "AWS key en test"},
+            {"file": "src/config.py", "line": 5, "severity": "critical",
+             "description": "Password hardcoded real"},
+        ]
+        result = fixer.generate(findings)
+        # El finding crítico sí genera un diff
+        assert result["status"] == "generated"
+        # Informa que se excluyó 1 finding info
+        assert result.get("skipped_low_info") == 1
+
+    def test_critical_findings_are_not_filtered(self, fixer):
+        """Findings críticos siempre pasan el filtro."""
+        findings = [{"file": "config.py", "line": 1, "severity": "critical",
+                     "description": "Password hardcoded"}]
+        result = fixer.generate(findings)
+        assert result["status"] == "generated"

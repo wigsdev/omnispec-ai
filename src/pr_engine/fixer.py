@@ -2,9 +2,19 @@
 
 Genera archivos corregidos (contenido completo) para cada vulnerabilidad
 detectada. También produce el diff para preview en la UI.
+
+Solo procesa hallazgos con severidad accionable (critical, high, medium).
+Hallazgos con severidad 'info' (archivos de test) y 'low' (valores de
+ejemplo en producción) se excluyen del pipeline de fix automático.
 """
 
 from typing import Any
+
+# Severidades que ameritan un fix automático.
+# - 'info'  → archivos de test: falsos positivos intencionales, nunca tocar.
+# - 'low'   → valores de ejemplo en producción: merecen revisión humana
+#             pero no un PR automático que podría romper código de docs/demos.
+ACTIONABLE_SEVERITIES: frozenset[str] = frozenset({"critical", "high", "medium"})
 
 from src.sdd_generator.ai_router import UniversalAIRouter
 
@@ -75,6 +85,10 @@ class DiffFixer:
     def generate(self, findings: list[dict[str, Any]], files: list[dict] | None = None) -> dict[str, Any]:
         """Genera correcciones para los hallazgos detectados.
 
+        Solo procesa findings con severidad accionable (critical, high, medium).
+        Findings con severidad 'info' (archivos de test) o 'low' (valores de
+        ejemplo conocidos) se excluyen del pipeline de fix automático.
+
         Args:
             findings: Lista de hallazgos de seguridad.
             files: Archivos originales del repo (con 'path' y 'content').
@@ -86,12 +100,35 @@ class DiffFixer:
         if not findings:
             return {"status": "no_fix_needed", "message": "No hay hallazgos para corregir"}
 
+        # Filtrar: solo hallazgos que ameritan intervención automática
+        actionable = [
+            f for f in findings
+            if f.get("severity", "").lower() in ACTIONABLE_SEVERITIES
+        ]
+        skipped_count = len(findings) - len(actionable)
+
+        if not actionable:
+            return {
+                "status": "no_fix_needed",
+                "message": (
+                    f"No hay hallazgos accionables. "
+                    f"{skipped_count} hallazgo(s) con severidad 'info'/'low' "
+                    f"fueron excluidos (archivos de test o valores de ejemplo)."
+                ),
+                "skipped": skipped_count,
+            }
+
+        # Si se descartaron algunos, registrarlo en el resultado
+        excluded_info = {"skipped_low_info": skipped_count} if skipped_count > 0 else {}
+
         # Si tenemos los archivos originales, generar fixes por archivo
         if files:
-            return self._generate_file_fixes(findings, files)
+            result = self._generate_file_fixes(actionable, files)
+        else:
+            # Sin archivos originales, generar solo el diff (legacy)
+            result = self._generate_diff_only(actionable)
 
-        # Sin archivos originales, generar solo el diff (legacy)
-        return self._generate_diff_only(findings)
+        return {**result, **excluded_info}
 
     def _generate_file_fixes(
         self, findings: list[dict[str, Any]], files: list[dict]
